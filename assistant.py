@@ -8,6 +8,7 @@ load_dotenv()
 class Assistant:
     def __init__(self, car):
         self.car = car
+        self.agent = self.initialize_agent()
         
     def build_tools(self):
         car = self.car
