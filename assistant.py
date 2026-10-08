@@ -43,7 +43,7 @@ class Assistant:
             """Zapisuje adres pod podaną etykietą."""
             car.save_address(label, address)
 
-        return [play_pause, next_track, previous_track, call_contact, navigate_to]
+        return [play_pause, next_track, previous_track, call_contact, navigate_to, save_address]
 
     
     def initialize_agent(self):
