@@ -1,4 +1,5 @@
 import sys
+import argparse
 
 from PySide6.QtWidgets import QApplication
 from PySide6.QtQml import QQmlApplicationEngine
@@ -13,19 +14,29 @@ car = CarSystem()
 backend = QmlBackend(car)
 assistant = Assistant(car)
 
-#QML start
-engine = QQmlApplicationEngine()
-engine.rootContext().setContextProperty("backend", backend)
-engine.load("Main.qml")
+
+#parse starting arguments to choose 
+parser = argparse.ArgumentParser(description="Car system application")
+parser.add_argument("--mode", choices=["qml", "assistant"], default="qml", help="Mode to run the application in")
+args = parser.parse_args()
+mode = args.mode
 
 
-#Assistant start
-while True:
-    text = input("> ")
-    response = assistant.handle_text(text)
-    print(response)
+if mode == "qml":
+    #QML start
+    engine = QQmlApplicationEngine()
+    engine.rootContext().setContextProperty("backend", backend)
+    engine.load("Main.qml")
+    
+    if not engine.rootObjects():
+        sys.exit(-1)
+        
+    sys.exit(app.exec())
 
-if not engine.rootObjects():
-    sys.exit(-1)
+if mode == "assistant":
+    #Assistant start
+    while True:
+        text = input("> ")
+        response = assistant.handle_text(text)
+        print(response)
 
-sys.exit(app.exec())

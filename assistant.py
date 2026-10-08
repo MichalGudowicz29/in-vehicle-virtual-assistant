@@ -17,27 +17,33 @@ class Assistant:
         def play_pause() -> str:
             """Włącza lub pauzuje muzykę."""
             car.play_pause()
-            return "Włączam lub pauzuję muzykę."
 
         @tool
         def next_track() -> str:
             """Przełącza na następny utwór."""
             car.next_track()
-            return "Przełączam na następny utwór."
+            
+        @tool
+        def previous_track() -> str:
+            """Przełącza na poprzedni utwór."""
+            car.previous_track()
 
         @tool
-        def call_contact(name: str) -> str:
+        def call_contact(name: str, number_type: str) -> str:
             """Dzwoni do kontaktu o podanej nazwie."""
             car.call_contact(name)
-            return f"Dzwonię do {name}."
 
         @tool
         def navigate_to(address: str) -> str:
             """Ustawia cel nawigacji na podany adres."""
             car.set_destination(address)
-            return f"Ustawiam cel: {address}."
+            
+        @tool
+        def save_address(label: str, address: str) -> str:
+            """Zapisuje adres pod podaną etykietą."""
+            car.save_address(label, address)
 
-        return [play_pause, next_track, call_contact, navigate_to]
+        return [play_pause, next_track, previous_track, call_contact, navigate_to]
 
     
     def initialize_agent(self):
