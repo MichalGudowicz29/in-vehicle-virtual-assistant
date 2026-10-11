@@ -23,31 +23,55 @@ class Assistant:
         def play_pause():
             """Włącza lub pauzuje muzykę."""
             car.play_pause()
+            return {
+                "success": True,
+                "message": "Play/Pause executed successfully."
+            }
 
         @tool
         def next_track():
             """Przełącza na następny utwór."""
             car.next_track()
+            return {
+                "success": True,
+                "message": "Next track executed successfully."
+            }
             
         @tool
         def previous_track():
             """Przełącza na poprzedni utwór."""
             car.previous_track()
+            return {
+                "success": True,
+                "message": "Previous track executed successfully."
+            }
 
         @tool
         def call_contact(name: str, number_type: str):
             """Dzwoni do kontaktu o podanej nazwie."""
             car.call_contact(name)
+            return {
+                "success": True,
+                "message": f"Call contact {name} executed successfully."
+            }
 
         @tool
         def navigate_to(address: str):
             """Ustawia cel nawigacji na podany adres."""
             car.set_destination(address)
+            return {
+                "success": True,
+                "message": f"Navigate to {address} executed successfully."
+            }
             
         @tool
         def save_address(label: str, address: str):
             """Zapisuje adres pod podaną etykietą."""
             car.save_address(label, address)
+            return {
+                "success": True,
+                "message": f"Save address {label}: {address} executed successfully."
+            }
 
         return [play_pause, next_track, previous_track, call_contact, navigate_to, save_address]
 
