@@ -14,6 +14,10 @@ class QmlBackend(QObject):
     def nextTrack(self):
         self.car.next_track()
 
+    @Slot()
+    def previousTrack(self):
+        self.car.previous_track()
+
     @Slot(str, str)
     def callContact(self, name, number_type):
         self.car.call_contact(name, number_type)

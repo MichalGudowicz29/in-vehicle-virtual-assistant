@@ -1,65 +1,52 @@
 import QtQuick
 import QtQuick.Controls
+import "qml"
 
 ApplicationWindow {
-    visible: true
+    id: window
 
+    visible: true
     width: 1280
     height: 720
-
     title: "Car Assistant"
 
-    Rectangle {
+    StackView {
+        id: stackView
         anchors.fill: parent
-        color: "#101216"
+        initialItem: homeScreen
+    }
 
-        Column {
-            anchors.centerIn: parent
-            spacing: 30
+    Component {
+        id: homeScreen
 
-            Text {
-                text: "CAR ASSISTANT"
-                color: "white"
-                font.pixelSize: 42
-                anchors.horizontalCenter: parent.horizontalCenter
-            }
+        HomeScreen {
+            onMusicClicked: stackView.push(musicScreen)
+            onNavigationClicked: stackView.push(navigationScreen)
+            onContactsClicked: stackView.push(contactsScreen)
+        }
+    }
 
-            Row {
-                spacing: 20
+    Component {
+        id: musicScreen
 
-                Button {
-                    text: "NAVIGATION"
+        MusicScreen {
+            onBackClicked: stackView.pop()
+        }
+    }
 
-                    width: 220
-                    height: 100
+    Component {
+        id: navigationScreen
 
-                    onClicked: {
-                        backend.setDestination("Zolnierska 47, Szczecin, Poland")
-                    }
-                }
+        NavigationScreen {
+            onBackClicked: stackView.pop()
+        }
+    }
 
-                Button {
-                    text: "MUSIC"
+    Component {
+        id: contactsScreen
 
-                    width: 220
-                    height: 100
-
-                    onClicked: {
-                        backend.playPause()
-                    }
-                }
-
-                Button {
-                    text: "PHONE"
-
-                    width: 220
-                    height: 100
-
-                    onClicked: {
-                        backend.callContact("Robert Lewandowski", "mobile")
-                    }
-                }
-            }
+        ContactsScreen {
+            onBackClicked: stackView.pop()
         }
     }
 }
