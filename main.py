@@ -7,6 +7,7 @@ from PySide6.QtQml import QQmlApplicationEngine
 from car_system import CarSystem
 from qml_backend import QmlBackend
 from assistant import Assistant
+from asr import listen
 
 app = QApplication(sys.argv)
 
@@ -34,9 +35,14 @@ if mode == "qml":
     sys.exit(app.exec())
 
 if mode == "assistant":
-    #Assistant start
     while True:
-        text = input("> ")
-        response = assistant.handle_text(text)
-        print(response)
+        text = listen()
+
+        if text is None:
+            break
+
+        if text:
+            print(f"Rozpoznano: {text}")
+            response = assistant.handle_text(text)
+            print(response)
 

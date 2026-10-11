@@ -4,8 +4,12 @@ version = "0.1.0"
 requires-python = ">=3.14"
 dependencies = [
     "dotenv>=0.9.9",
+    "google-genai>=2.29.0",
     "langchain>=1.4.3",
     "langchain-openai>=1.6.7",
     "langgraph>=1.2.14",
     "pyside6>=6.12.0",
+    "pynput>=1.7.7",
+    "sounddevice>=0.5.3",
+    "vosk==0.3.42",
 ]

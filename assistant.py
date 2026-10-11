@@ -1,13 +1,19 @@
 from dotenv import load_dotenv # type: ignore
 
 from langchain.agents import create_agent # type: ignore
+from langchain_core.runnables import RunnableConfig
 from langchain.tools import tool # type: ignore
+from langgraph.checkpoint.memory import InMemorySaver
 
 load_dotenv()
 
 class Assistant:
-    def __init__(self, car):
+    def __init__(self, car, thread_id: str = "user_session_1"):
         self.car = car
+        self.checkpointer = InMemorySaver()
+        self.thread_config: RunnableConfig = {
+            "configurable": {"thread_id": thread_id}
+        }
         self.agent = self.initialize_agent()
         
     def build_tools(self):
@@ -50,13 +56,14 @@ class Assistant:
         return create_agent(
             model="openai:gpt-4o-mini",
             tools=self.build_tools(),
+            checkpointer=self.checkpointer,
         )
     
+    
     def handle_text(self, text: str):
-        result = self.agent.invoke({
-            "messages": [
-                {"role": "user", "content": text}
-            ]
-        })
+        result = self.agent.invoke(
+            {"messages": [{"role": "user", "content": text}]},
+            config=self.thread_config,
+        )
 
         return result["messages"][-1].content
