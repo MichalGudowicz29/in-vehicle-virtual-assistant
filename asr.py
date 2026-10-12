@@ -35,8 +35,7 @@ def listen() -> str | None:
         if getattr(key, "char", None) and key.char.lower() == "v":
             recording.clear()
 
-    print("Przytrzymaj V, aby mówić. Esc kończy.")
-
+    print("V push to talk, ESC exit")
     with sd.RawInputStream(
         samplerate=samplerate,
         blocksize=8000,
