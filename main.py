@@ -5,13 +5,11 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtQml import QQmlApplicationEngine
 
 from car_system import CarSystem
-from qml_backend import QmlBackend
 from voice_worker import VoiceWorker
 
 app = QApplication(sys.argv)
 
 car = CarSystem()
-backend = QmlBackend(car)
 
 #utworzenie wątku dla VoiceWorker
 assistant_thread = QThread()
@@ -26,7 +24,7 @@ print("Moving voice worker to assistant thread")
 assistant_thread.started.connect(voice_worker.run)
 
 engine = QQmlApplicationEngine()
-engine.rootContext().setContextProperty("backend", backend)
+engine.rootContext().setContextProperty("car", car)
 engine.load("Main.qml")
 print("Loaded QML engine...")
 
@@ -46,4 +44,3 @@ assistant_thread.wait()
 
 print("Application exiting")
 sys.exit(exit_code)
-

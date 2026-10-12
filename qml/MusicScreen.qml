@@ -36,17 +36,17 @@ Item {
 
             Button {
                 text: "PREVIOUS"
-                onClicked: backend.previousTrack()
+                onClicked: car.previous_track()
             }
 
             Button {
                 text: "PLAY / PAUSE"
-                onClicked: backend.playPause()
+                onClicked: car.play_pause()
             }
 
             Button {
                 text: "NEXT"
-                onClicked: backend.nextTrack()
+                onClicked: car.next_track()
             }
         }
 

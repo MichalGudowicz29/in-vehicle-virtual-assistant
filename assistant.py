@@ -225,12 +225,23 @@ class Assistant:
         @tool
         def notify(message: str):
             """Wyświetla powiadomienie w interfejsie QML."""
+            #TODO: implementacja powiadomienia w QML
             print(f"Notification: {message}")
             #car.notify(message)
             return {
                 "success": True,
                 "message": f"Notification '{message}' displayed successfully."
             }
+            
+        # testowy tool do sprawdzenia jak wywolywac zmiany w QML poprzez asystenta
+        # @tool
+        # def go_to_navigation_screen():
+        #     """Przełącza interfejs na ekran nawigacji."""
+        #     car.navigationScreenRequested.emit()
+        #     return {
+        #         "success": True,
+        #         "message": "Navigated to navigation screen successfully."
+        #     }
 
         return [play_pause, next_track, previous_track, call_contact, navigate_to, save_address, notify]
 

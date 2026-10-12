@@ -26,7 +26,7 @@ Item {
         Button {
             text: "Robert Lewandowski"
             anchors.horizontalCenter: parent.horizontalCenter
-            onClicked: backend.callContact("Robert Lewandowski", "mobile")
+            onClicked: car.call_contact("Robert Lewandowski", "mobile")
         }
 
         Button {
@@ -36,4 +36,3 @@ Item {
         }
     }
 }
-

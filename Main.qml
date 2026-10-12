@@ -16,6 +16,14 @@ ApplicationWindow {
         initialItem: homeScreen
     }
 
+    Connections {
+        target: car
+                 
+        function onNavigationScreenRequested() {
+            stackView.push(navigationScreen)
+        }
+    }
+
     Component {
         id: homeScreen
 
@@ -49,4 +57,6 @@ ApplicationWindow {
             onBackClicked: stackView.pop()
         }
     }
+
+    
 }

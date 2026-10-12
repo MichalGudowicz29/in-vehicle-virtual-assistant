@@ -34,7 +34,7 @@ Item {
         Button {
             text: "START NAVIGATION"
             anchors.horizontalCenter: parent.horizontalCenter
-            onClicked: backend.setDestination(addressField.text)
+            onClicked: car.set_destination(addressField.text)
         }
 
         Button {
@@ -44,4 +44,3 @@ Item {
         }
     }
 }
-
