@@ -1,6 +1,6 @@
 from PySide6.QtCore import QObject
-
 from assistant import Assistant
+from tts import speak, wait_until_speech_done
 
 
 class VoiceWorker(QObject):
@@ -20,6 +20,8 @@ class VoiceWorker(QObject):
                 break
 
             if text:
-                print(f"Ty: {text}")
                 response = assistant.handle_text(text)
                 print(response)
+
+                speak(response)
+                wait_until_speech_done()
