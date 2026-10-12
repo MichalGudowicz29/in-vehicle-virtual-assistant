@@ -1,41 +1,31 @@
 import json
 import queue
 import threading
+from pathlib import Path
 
 import sounddevice as sd
-from pynput import keyboard
 from vosk import KaldiRecognizer, Model
 
 
-model = Model("models/vosk-model-small-pl-0.22")
-samplerate = int(sd.query_devices(kind="input")["default_samplerate"])
+MODEL_PATH = Path(__file__).resolve().parent / "models/vosk-model-small-pl-0.22"
+_model = None
 
 
-def listen() -> str | None:
-    """Record while V is held and return one transcript after it is released."""
-    recognizer = KaldiRecognizer(model, samplerate)
+def _get_model():
+    global _model
+    if _model is None:
+        _model = Model(str(MODEL_PATH))
+    return _model
+
+
+def listen(stop_event: threading.Event) -> str | None:
+    samplerate = int(sd.query_devices(kind="input")["default_samplerate"])
+    recognizer = KaldiRecognizer(_get_model(), samplerate)
     audio_queue = queue.Queue()
-    recording = threading.Event()
-    cancelled = threading.Event()
 
     def audio_callback(indata, frames, time, status):
-        if recording.is_set():
-            audio_queue.put(bytes(indata))
+        audio_queue.put(bytes(indata))
 
-    def on_press(key):
-        if key == keyboard.Key.esc:
-            cancelled.set()
-            recording.clear()
-            return False
-
-        if getattr(key, "char", None) and key.char.lower() == "v":
-            recording.set()
-
-    def on_release(key):
-        if getattr(key, "char", None) and key.char.lower() == "v":
-            recording.clear()
-
-    print("V push to talk, ESC exit")
     with sd.RawInputStream(
         samplerate=samplerate,
         blocksize=8000,
@@ -43,27 +33,15 @@ def listen() -> str | None:
         channels=1,
         callback=audio_callback,
     ):
-        with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
-            while listener.is_alive() and not cancelled.is_set():
-                if recording.wait(timeout=0.1):
-                    break
+        while not stop_event.is_set():
+            try:
+                data = audio_queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
 
-            if cancelled.is_set():
-                return None
+            if recognizer.AcceptWaveform(data):
+                text = json.loads(recognizer.Result()).get("text", "").strip()
+                if text:
+                    return text
 
-            while recording.is_set():
-                try:
-                    recognizer.AcceptWaveform(audio_queue.get(timeout=0.1))
-                except queue.Empty:
-                    continue
-
-            while True:
-                try:
-                    recognizer.AcceptWaveform(audio_queue.get_nowait())
-                except queue.Empty:
-                    break
-
-            if cancelled.is_set():
-                return None
-
-            return json.loads(recognizer.FinalResult()).get("text", "")
+    return None
