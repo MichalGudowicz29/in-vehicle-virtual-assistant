@@ -22,7 +22,6 @@ voice_worker = VoiceWorker(car)
 #przeniesienie VoiceWorker do osobnego wątku
 voice_worker.moveToThread(assistant_thread)
 
-#połączenie sygnału started wątku z metodą run VoiceWorker
 assistant_thread.started.connect(voice_worker.run)
 
 engine = QQmlApplicationEngine()

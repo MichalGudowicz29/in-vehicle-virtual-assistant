@@ -73,8 +73,8 @@ temp_audio/
 # Models
 # =========================
 
-models/
-model/
+#models/
+#model/
 *.onnx
 *.pt
 *.pth
