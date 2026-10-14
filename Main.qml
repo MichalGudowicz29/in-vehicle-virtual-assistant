@@ -17,7 +17,7 @@ ApplicationWindow {
     }
 
     Connections {
-        target: car
+        target: car.navigation
 
         function onMapScreenRequested() {
             stackView.push(mapScreen)

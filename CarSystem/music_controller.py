@@ -24,21 +24,6 @@ class MusicController(QObject):
             },
         ]
 
-        self._contacts = [
-            {
-                "name": "Robert Lewandowski",
-                "mobile": "501234567",
-            },
-            {
-                "name": "Anna Kowalska",
-                "mobile": "502345678",
-                "work": "223456789",
-            },
-            {
-                "name": "Jan Nowak",
-                "work": "224567890",
-            },
-        ]
         self._current_track_index = 0
         self._isPlaying = False
         

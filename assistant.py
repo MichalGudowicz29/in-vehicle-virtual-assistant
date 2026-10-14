@@ -195,7 +195,7 @@ class Assistant:
         @tool
         def call_contact(name: str, number_type: str):
             """Dzwoni do kontaktu o podanej nazwie."""
-            car.call_contact(name)
+            car.contacts.call_contact(name, number_type)
             return {
                 "success": True,
                 "message": f"Call contact {name} executed successfully."

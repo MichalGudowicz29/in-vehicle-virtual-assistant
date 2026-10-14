@@ -17,7 +17,7 @@ class AssistantLive:
             "play_pause": car.music.play_pause,
             "next_track": car.music.next_track,
             "previous_track": car.music.previous_track,
-            "call_contact": car.call_contact,
+            "call_contact": car.contacts.call_contact,
             "navigate_to": car.set_destination,
             "save_address": car.save_address,
         }
