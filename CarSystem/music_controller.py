@@ -1,24 +1,14 @@
 from PySide6.QtCore import Q_ARG, QMetaObject, QMetaType, QObject, Property, QThread, Qt, Signal, Slot
 
-
-class CarSystem(QObject):
-    currentScreenChanged = Signal()
-    destinationChanged = Signal()
-    mapScreenRequested = Signal()
-    
-    
+ 
+class MusicController(QObject):
     tracksChanged = Signal()
     contactsChanged = Signal()
     currentTrackChanged = Signal()
     isPlayingChanged = Signal()
-        
-    
-    
     
     def __init__(self):
         super().__init__()
-        self._screen = "home"
-        self._destination = ""
         self._tracks = [
             {
                 "title": "Africa",
@@ -169,45 +159,3 @@ class CarSystem(QObject):
             print("Music playing")
         else:
             print("Music paused")
-
-
-
-    # Kontakty
-    @Property(str, notify=contactsChanged)
-    def contacts(self):
-        return self._contacts
-    
-    @Property(str, notify=currentScreenChanged)
-    def currentScreen(self):
-        return self._screen
-    
-    @Property(str, notify=destinationChanged)
-    def destination(self):
-        return self._destination
-    
-    def _set_screen(self, name: str):
-        if self._screen != name:
-            self._screen = name
-            self.currentScreenChanged.emit()
-            
-    
-    
-    @Slot(str)
-    def set_destination(self, address: str):
-        if QThread.currentThread() != self.thread():
-            QMetaObject.invokeMethod(
-                self,
-                "_set_destination",
-                Qt.ConnectionType.QueuedConnection,
-                Q_ARG(str, address),
-            )
-            return
-
-        self._set_destination(address)
-
-    @Slot(str)
-    def _set_destination(self, address: str):
-        self._destination = address
-        self.destinationChanged.emit()
-        self.mapScreenRequested.emit()
-        print(f"Set destination to {address}")

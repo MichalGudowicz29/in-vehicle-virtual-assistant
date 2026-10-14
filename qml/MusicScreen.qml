@@ -24,14 +24,14 @@ Item {
         }
 
         Text {
-            text: car.isPlaying ? "Playing" : "Paused"
+            text: car.music.isPlaying ? "Playing" : "Paused"
             color: "#9aa4b2"
             font.pixelSize: 18
             anchors.horizontalCenter: parent.horizontalCenter
         }
 
         Text {
-            text: car.currentTrackIndex >= 0 ? car.currentTrackIndex : "No track selected"
+            text: car.music.currentTrackIndex >= 0 ? car.music.currentTrackIndex : "No track selected"
             color: "#9aa4b2"
             font.pixelSize: 18
             anchors.horizontalCenter: parent.horizontalCenter
@@ -43,17 +43,17 @@ Item {
 
             Button {
                 text: "PREVIOUS"
-                onClicked: car.previous_track()
+                onClicked: car.music.previous_track()
             }
 
             Button {
-                text: car.isPlaying ? "PAUSE" : "PLAY"
-                onClicked: car.play_pause()
+                text: car.music.isPlaying ? "PAUSE" : "PLAY"
+                onClicked: car.music.play_pause()
             }
 
             Button {
                 text: "NEXT"
-                onClicked: car.next_track()
+                onClicked: car.music.next_track()
             }
         }
 

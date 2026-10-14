@@ -4,7 +4,7 @@ from PySide6.QtCore import QThread
 from PySide6.QtWidgets import QApplication
 from PySide6.QtQml import QQmlApplicationEngine
 
-from car_system import CarSystem
+from CarSystem.car_system import CarSystem
 from voice_worker import VoiceWorker
 
 app = QApplication(sys.argv)

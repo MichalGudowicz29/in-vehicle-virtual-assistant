@@ -167,7 +167,7 @@ class Assistant:
         @tool
         def play_pause():
             """Włącza lub pauzuje muzykę."""
-            car.play_pause()
+            car.music.play_pause()
             return {
                 "success": True,
                 "message": "Play/Pause executed successfully."
@@ -176,7 +176,7 @@ class Assistant:
         @tool
         def next_track():
             """Przełącza na następny utwór."""
-            car.next_track()
+            car.music.next_track()
             return {
                 "success": True,
                 "message": "Next track executed successfully."
@@ -185,7 +185,7 @@ class Assistant:
         @tool
         def previous_track():
             """Przełącza na poprzedni utwór."""
-            car.previous_track()
+            car.music.previous_track()
             return {
                 "success": True,
                 "message": "Previous track executed successfully."

@@ -14,9 +14,9 @@ class AssistantLive:
         car = self.car
         # W trybie Live funkcje mapuje się bezpośrednio lub przekazuje jako callable do SDK
         return {
-            "play_pause": car.play_pause,
-            "next_track": car.next_track,
-            "previous_track": car.previous_track,
+            "play_pause": car.music.play_pause,
+            "next_track": car.music.next_track,
+            "previous_track": car.music.previous_track,
             "call_contact": car.call_contact,
             "navigate_to": car.set_destination,
             "save_address": car.save_address,
