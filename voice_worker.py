@@ -1,4 +1,5 @@
 import threading
+import time
 
 from PySide6.QtCore import QObject
 
@@ -26,12 +27,15 @@ class VoiceWorker(QObject):
                 if text is None:
                     break
 
+                print(f"ASR: {text!r}")
+
                 try:
                     response = assistant.handle_text(text)
                     print(response)
                     if response:
                         speak(response)
                         wait_until_speech_done()
+                        time.sleep(0.7)
                 except Exception as error:
                     print(f"Voice assistant error: {error}")
         except Exception as error:
