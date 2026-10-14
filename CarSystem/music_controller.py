@@ -30,7 +30,7 @@ class MusicController(QObject):
     # Muzyka
     
     # Wystawienie listy utworów
-    @Property(str, notify=tracksChanged)
+    @Property(list, notify=tracksChanged)
     def tracks(self):
         return self._tracks
     
@@ -53,7 +53,7 @@ class MusicController(QObject):
                 "_next_track",
                 Qt.ConnectionType.QueuedConnection,
             )
-            return
+            return True
 
         self._next_track()
   
@@ -79,7 +79,7 @@ class MusicController(QObject):
                 "_previous_track",
                 Qt.ConnectionType.QueuedConnection,
             )
-            return
+            return True
 
         self._previous_track() 
         
@@ -97,23 +97,24 @@ class MusicController(QObject):
         print("Previous track")
     
     # Bezpiecznie watkowa obsluga wyboru utworu
-    @Slot(int)
-    def select_track(self, index: int):
+    @Slot(str)
+    def select_track(self, title: str):
         if QThread.currentThread() != self.thread():
             QMetaObject.invokeMethod(
                 self,
                 "_select_track",
                 Qt.ConnectionType.QueuedConnection,
-                Q_ARG(int, index),
+                Q_ARG(str, title),
             )
-            return
+            return True
 
-        self._select_track(index)
+        self._select_track(title)
 
     # metoda do zmiany tracka wywolywana przez select_track zeby bylo bezpiecznie watkowo
-    @Slot(int)
-    def _select_track(self, index: int):
-        if not 0 <= index < len(self._tracks):
+    @Slot(str)
+    def _select_track(self, title: str):
+        index = next((i for i, t in enumerate(self._tracks) if t['title'] == title), -1)
+        if index == -1:
             return
         
         self._current_track_index = index
@@ -130,7 +131,7 @@ class MusicController(QObject):
                 "_play_pause",
                 Qt.ConnectionType.QueuedConnection,
             )
-            return
+            return True
 
         self._play_pause()
 

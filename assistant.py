@@ -1,9 +1,17 @@
+from operator import index
+
+from distro import name
 from dotenv import load_dotenv # type: ignore
 
 from langchain.agents import create_agent # type: ignore
 from langchain_core.runnables import RunnableConfig
 from langchain.tools import tool # type: ignore
 from langgraph.checkpoint.memory import InMemorySaver
+
+from typing import Any, Literal
+from langchain.messages import HumanMessage
+from langchain.agents.middleware.types import InputAgentState
+
 
 load_dotenv()
 
@@ -190,15 +198,101 @@ class Assistant:
                 "success": True,
                 "message": "Previous track executed successfully."
             }
+            
+        
+        @tool
+        def get_track_list():
+            """Zwraca listę dostępnych utworów."""
+            tracks = car.music.tracks
+
+            return {
+                "success": True,
+                "tracks": [
+                    {
+                        "id": index,
+                        "title": track["title"],
+                        "author": track["artist"],
+                    }
+                    for index, track in enumerate(tracks)
+                ],
+                "message": "Retrieved track list successfully.",
+            }
+            
+        @tool
+        def search_track(query: str):
+            """Wyszukuje utwory po tytule lub wykonawcy."""
+            query = query.lower()
+            tracks = car.music.tracks
+
+            matches = [
+                {
+                    "id": index,
+                    "title": track["title"],
+                    "author": track["artist"],
+                }
+                for index, track in enumerate(tracks)
+                if query in track["title"].lower()
+                or query in track["artist"].lower()
+            ]
+
+            return {
+                "success": bool(matches),
+                "tracks": matches,
+                "message": (
+                    f"Found {len(matches)} matching tracks."
+                    if matches
+                    else "No tracks found."
+                ),
+            }
+        
+        @tool
+        def select_track(title: str):
+            """Wybiera utwór na podstawie tytułu."""
+            car.music.select_track(title)
+            return {
+                "success": True,
+                "message": f"Selected track '{title}'."
+            }
 
         # Kontakty
         @tool
-        def call_contact(name: str, number_type: str):
-            """Dzwoni do kontaktu o podanej nazwie."""
-            car.contacts.call_contact(name, number_type)
+        def get_contacts():
+            """Zwraca wszystkich zapisanych kontaktów wraz ze wszystkimi numerami."""
+
+            contacts = [
+                {
+                    "id": index,
+                    "name": contact["name"],
+                    "numbers": {
+                        key: value
+                        for key, value in contact.items()
+                        if key != "name"
+                    },
+                }
+                for index, contact in enumerate(car.contacts.contacts)
+            ]
+
             return {
-                "success": True,
-                "message": f"Call contact {name} executed successfully."
+                "success": bool(contacts),
+                "contacts": contacts,
+                "message": "Lista kontaktów została pobrana.",
+            }
+        
+        @tool
+        def call_contact(
+            name: str,
+            number_type: Literal["mobile", "work"],
+        ):
+            """Inicjuje połączenie z kontaktem o podanej nazwie i typie numeru."""
+            requested = car.contacts.call_contact(name, number_type)
+
+            return {
+                "success": requested,
+                "message": (
+                    f"Rozpoczęto połączenie z {name} ({number_type})."
+                    if requested
+                    else f"Nie udało się znaleźć numeru dla {name} ({number_type})."
+                ),
             }
 
 
@@ -206,44 +300,33 @@ class Assistant:
         @tool
         def navigate_to(address: str):
             """Ustawia cel nawigacji na podany adres."""
-            car.set_destination(address)
+            requested = car.navigation.set_destination(address)
             return {
-                "success": True,
-                "message": f"Navigate to {address} executed successfully."
+                "success": requested,
+                "message": (
+                    f"Navigate to {address} executed successfully."
+                    if requested
+                    else f"Nie udało się ustawić celu nawigacji na {address}."
+                ),
             }
-            
-        @tool
-        def save_address(label: str, address: str):
-            """Zapisuje adres pod podaną etykietą."""
-            car.save_address(label, address)
-            return {
-                "success": True,
-                "message": f"Save address {label}: {address} executed successfully."
-            }
-        
-        # UI 
-        @tool
-        def notify(message: str):
-            """Wyświetla powiadomienie w interfejsie QML."""
-            #TODO: implementacja powiadomienia w QML
-            print(f"Notification: {message}")
-            #car.notify(message)
-            return {
-                "success": True,
-                "message": f"Notification '{message}' displayed successfully."
-            }
-            
-        # testowy tool do sprawdzenia jak wywolywac zmiany w QML poprzez asystenta
-        # @tool
-        # def go_to_navigation_screen():
-        #     """Przełącza interfejs na ekran nawigacji."""
-        #     car.navigationScreenRequested.emit()
-        #     return {
-        #         "success": True,
-        #         "message": "Navigated to navigation screen successfully."
-        #     }
 
-        return [play_pause, next_track, previous_track, call_contact, navigate_to, save_address, notify]
+        return [
+            # Muzyka
+            play_pause, 
+            next_track, 
+            previous_track, 
+            search_track, 
+            select_track,
+            get_track_list,
+            
+            # Kontakty
+            call_contact, 
+            get_contacts,
+            
+            # Nawigacja
+            navigate_to, 
+        ]
+
 
     # dodac try except 
     def initialize_agent(self):
@@ -257,9 +340,50 @@ class Assistant:
     
     # dodac try except 
     def handle_text(self, text: str):
-        result = self.agent.invoke(
-            {"messages": [{"role": "user", "content": text}]},
-            config=self.thread_config,
-        )
+        input_data: InputAgentState = {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": text,
+                }
+            ]
+        }
 
-        return result["messages"][-1].content
+        final_text = ""
+
+        for raw_chunk in self.agent.stream(
+            input_data,
+            config=self.thread_config,
+            stream_mode="updates",
+            version="v2",
+        ):
+            if not isinstance(raw_chunk, dict):
+                continue
+
+            data = raw_chunk.get("data")
+            if not isinstance(data, dict):
+                continue
+
+            for node_name, raw_update in data.items():
+                print(f"\n--- node: {node_name} ---")
+
+                if not isinstance(raw_update, dict):
+                    continue
+
+                messages = raw_update.get("messages", [])
+                if not isinstance(messages, list):
+                    continue
+
+                for message in messages:
+                    content = getattr(message, "content", "")
+                    print(f"type: {type(message).__name__}")
+                    print(f"content: {content}")
+
+                    tool_calls = getattr(message, "tool_calls", None)
+                    if tool_calls:
+                        print(f"tool calls: {tool_calls}")
+
+                    if isinstance(content, str) and content:
+                        final_text = content
+
+        return final_text

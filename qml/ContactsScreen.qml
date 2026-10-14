@@ -24,6 +24,11 @@ Item {
             font.bold: true
         }
 
+        Text {
+            visible: car.contacts.current_contact_index != -1
+            text: "Calling:" + (car.contacts.current_contact_index >= 0 ? car.contacts.contacts[car.contacts.current_contact_index].name : "No contact selected")
+        }
+
         ListView {
             width: parent.width
             height: parent.height - 140

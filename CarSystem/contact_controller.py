@@ -22,6 +22,7 @@ class ContactController(QObject):
                 "work": "224567890",
             },
         ]
+        self._current_contact_index = -1
 
     @Property(list, notify=contactsChanged)
     def contacts(self):
@@ -29,6 +30,12 @@ class ContactController(QObject):
 
     @Slot(str, str)
     def call_contact(self, contact_name: str, contact_type: str):
+        contact = next((
+            contact
+            for contact in self._contacts
+            if contact["name"] == contact_name
+        ), None)
+        
         if QThread.currentThread() != self.thread():
             QMetaObject.invokeMethod(
                 self,
@@ -37,16 +44,18 @@ class ContactController(QObject):
                 Q_ARG(str, contact_name),
                 Q_ARG(str, contact_type),
             )
-            return
+            return True
 
-        self._call_contact(contact_name, contact_type)
+        return self._call_contact(contact_name, contact_type)
 
-    @Slot(str)
+    @Slot(str, str)
     def _call_contact(self, contact_name: str, contact_type: str = "mobile"):
         for contact in self._contacts:
             if contact["name"] == contact_name:
                 self.callingRequested.emit(contact[contact_type])
-                break
+                self._current_contact_index = self._contacts.index(contact)
+                return True
+        return False
 
     @Slot(list)
     def set_contacts(self, contacts: list):
