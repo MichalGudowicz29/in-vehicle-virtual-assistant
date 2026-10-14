@@ -18,10 +18,11 @@ ApplicationWindow {
 
     Connections {
         target: car
-                 
-        function onNavigationScreenRequested() {
-            stackView.push(navigationScreen)
+
+        function onMapScreenRequested() {
+            stackView.push(mapScreen)
         }
+
     }
 
     Component {
@@ -46,6 +47,14 @@ ApplicationWindow {
         id: navigationScreen
 
         NavigationScreen {
+            onBackClicked: stackView.pop()
+        }
+    }
+
+    Component {
+        id: mapScreen
+
+        MapScreen {
             onBackClicked: stackView.pop()
         }
     }

@@ -24,9 +24,16 @@ Item {
         }
 
         Text {
-            text: "Mockup odtwarzacza muzyki"
+            text: car.isPlaying ? "Playing" : "Paused"
             color: "#9aa4b2"
-            font.pixelSize: 20
+            font.pixelSize: 18
+            anchors.horizontalCenter: parent.horizontalCenter
+        }
+
+        Text {
+            text: car.currentTrackIndex >= 0 ? car.currentTrackIndex : "No track selected"
+            color: "#9aa4b2"
+            font.pixelSize: 18
             anchors.horizontalCenter: parent.horizontalCenter
         }
 
@@ -40,7 +47,7 @@ Item {
             }
 
             Button {
-                text: "PLAY / PAUSE"
+                text: car.isPlaying ? "PAUSE" : "PLAY"
                 onClicked: car.play_pause()
             }
 
