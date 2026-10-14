@@ -44,7 +44,7 @@ def test_music_node_toggles_playing_state():
         "success": True,
         "action": "play_pause",
     }
-    assert car.music.isPlaying is True
+    assert car.music.isPlaying is True # type: ignore
 
 
 def test_navigation_node_sets_destination():
@@ -62,7 +62,7 @@ def test_navigation_node_sets_destination():
         "success": True,
         "action": "set_destination",
     }
-    assert car.navigation.destination == "Szczecin"
+    assert car.navigation.destination == "Szczecin" # type: ignore
 
 
 def test_build_graph_routes_contact_action():
