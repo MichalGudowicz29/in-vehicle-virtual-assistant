@@ -18,6 +18,8 @@ def _get_model():
     return _model
 
 
+
+#TODO Przejsc na whisper large
 def listen(stop_event: threading.Event) -> str | None:
     samplerate = int(sd.query_devices(kind="input")["default_samplerate"])
     recognizer = KaldiRecognizer(_get_model(), samplerate)

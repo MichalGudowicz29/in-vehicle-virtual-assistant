@@ -71,7 +71,7 @@ def test_navigation_node_sets_destination():
     result = navigation_node(
         {
             "action": "set_destination",
-            "payload": {"address": "Szczecin"},
+            "payload": {"address": "ul. Końcowa 5, Szczecin"},
         },
         car,
     )
@@ -79,9 +79,9 @@ def test_navigation_node_sets_destination():
     assert result["result"] == {
         "success": True,
         "action": "set_destination",
-        "destination": "Szczecin",
+        "destination": "ul. Końcowa 5, Szczecin",
     }
-    assert car.navigation.destination == "Szczecin" # type: ignore
+    assert car.navigation.destination == "ul. Końcowa 5, Szczecin" # type: ignore
 
 
 def test_navigation_node_rejects_empty_destination():
@@ -100,6 +100,20 @@ def test_navigation_node_rejects_empty_destination():
         "action": "set_destination",
         "destination": "   ",
     }
+
+
+def test_navigation_node_rejects_unknown_destination():
+    car = CarSystem()
+
+    result = navigation_node(
+        {
+            "action": "set_destination",
+            "payload": {"address": "ul. Nieznana 1, Szczecin"},
+        },
+        car,
+    )
+
+    assert result["result"]["success"] is False
 
 
 def test_build_graph_routes_contact_action():

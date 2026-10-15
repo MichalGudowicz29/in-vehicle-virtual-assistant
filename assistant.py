@@ -177,13 +177,34 @@ class Assistant:
     
         # Nawigacja
         @tool
-        def navigate_to(address: str):
-            """Ustawia cel nawigacji na podany adres."""
+        def navigate_to(street: str, city: str, number: str):
+            """Ustawia cel nawigacji na podany adres. street, city i number muszą być podane."""
+            address = f"ul. {street} {number}, {city}"
             return self._execute_graph_action(
                 "navigation",
                 "set_destination",
                 {"address": address},
             )
+            
+        @tool
+        def add_stop(street: str, city: str, number: str):
+            """Dodaje przystanek do trasy na podany adres. street, city i number muszą być podane."""
+            address = f"ul. {street} {number}, {city}"
+            return self._execute_graph_action(
+                "navigation",
+                "add_stop",
+                {"address": address},
+            )
+        
+        @tool 
+        def get_places_list():
+            """Zwraca listę dostępnych miejsc, ktore mozna dodac jako przystanek."""
+            return {
+                "success": True,
+                "places": car.navigation.places_list,
+                "message": "Retrieved places list successfully.",
+            }   
+            
 
         return [
             # Muzyka
@@ -200,6 +221,8 @@ class Assistant:
             
             # Nawigacja
             navigate_to, 
+            add_stop,
+            get_places_list,
         ]
 
 

@@ -28,13 +28,25 @@ Item {
         TextField {
             id: addressField
             width: parent.width
-            placeholderText: "Wpisz adres celu"
+            placeholderText: "ul. Końcowa 5, Szczecin"
         }
 
         Button {
             text: "START NAVIGATION"
             anchors.horizontalCenter: parent.horizontalCenter
-            onClicked: car.navigation.set_destination(addressField.text)
+            onClicked: {
+                const accepted = car.navigation.set_destination(addressField.text)
+                statusText.text = accepted
+                    ? "Cel ustawiony."
+                    : "Wpisz dokładny adres z bazy testowej."
+            }
+        }
+
+        Text {
+            id: statusText
+            width: parent.width
+            color: "#ffb4ab"
+            horizontalAlignment: Text.AlignHCenter
         }
 
         Button {
