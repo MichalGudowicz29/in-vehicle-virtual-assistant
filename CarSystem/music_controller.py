@@ -1,4 +1,5 @@
-from PySide6.QtCore import Q_ARG, QMetaObject, QMetaType, QObject, Property, QThread, Qt, Signal, Slot
+from PySide6.QtCore import Q_ARG, QMetaObject, QObject, Property, QThread, Qt, Signal, Slot
+import pygame
 
  
 class MusicController(QObject):
@@ -11,21 +12,28 @@ class MusicController(QObject):
         super().__init__()
         self._tracks = [
             {
-                "title": "Africa",
+                "title": "Afryka",
                 "artist": "Toto",
+                "path": "music/1.mp3",
             },
             {
-                "title": "Dreams",
+                "title": "Europa",
                 "artist": "Fleetwood Mac",
+                "path": "music/2.mp3",
             },
             {
-                "title": "Take On Me",
+                "title": "Ameryka",
                 "artist": "a-ha",
+                "path": "music/3.mp3",
             },
         ]
 
         self._current_track_index = 0
         self._isPlaying = False
+        pygame.mixer.init()
+        pygame.mixer.music.load(self._tracks[self._current_track_index]["path"])
+        pygame.mixer.music.play()
+        pygame.mixer.music.pause()
         
     # Muzyka
     
@@ -55,20 +63,26 @@ class MusicController(QObject):
             )
             return True
 
-        self._next_track()
+        return self._next_track()
   
     # metoda do zmiany tracka wywolywana przez next_track zeby bylo bezpiecznie watkowo
     @Slot()
     def _next_track(self):
         if not self._tracks:
-            return
+            return False
 
         self._current_track_index = (
             self._current_track_index + 1
         ) % len(self._tracks)
+        
+        pygame.mixer.music.load(self._tracks[self._current_track_index]["path"])
+        pygame.mixer.music.play()
+        self._isPlaying = True
+        self.isPlayingChanged.emit()
 
         self.currentTrackChanged.emit()
         print("Next track")
+        return True
 
     # Bezpiecznie watkowa obsluga poprzedniego utworu
     @Slot()
@@ -81,20 +95,24 @@ class MusicController(QObject):
             )
             return True
 
-        self._previous_track() 
+        return self._previous_track()
         
     # metoda do zmiany tracka wywolywana przez previous_track zeby bylo bezpiecznie watkowo
     @Slot()
     def _previous_track(self):
         if not self._tracks:
-            return
+            return False
 
         self._current_track_index = (
             self._current_track_index - 1
         ) % len(self._tracks)
-
+        pygame.mixer.music.load(self._tracks[self._current_track_index]["path"])
+        pygame.mixer.music.play()
+        self._isPlaying = True
+        self.isPlayingChanged.emit()
         self.currentTrackChanged.emit()
         print("Previous track")
+        return True
     
     # Bezpiecznie watkowa obsluga wyboru utworu
     @Slot(str)
@@ -108,19 +126,25 @@ class MusicController(QObject):
             )
             return True
 
-        self._select_track(title)
+        return self._select_track(title)
 
     # metoda do zmiany tracka wywolywana przez select_track zeby bylo bezpiecznie watkowo
     @Slot(str)
     def _select_track(self, title: str):
         index = next((i for i, t in enumerate(self._tracks) if t['title'] == title), -1)
         if index == -1:
-            return
+            return False
         
         self._current_track_index = index
+        pygame.mixer.music.load(self._tracks[self._current_track_index]["path"])
+        pygame.mixer.music.play()
+        self._isPlaying = True
+        self.isPlayingChanged.emit()
         self.currentTrackChanged.emit()
         track = self._tracks[index]
+        
         print(f"Selected track: {track['title']} by {track['artist']}")
+        return True
         
     # Bezpiecznie watkowa obsluga pauzy/odtwarzania
     @Slot()
@@ -133,7 +157,7 @@ class MusicController(QObject):
             )
             return True
 
-        self._play_pause()
+        return self._play_pause()
 
     # metoda do zmiany stanu odtwarzania wywolywana przez play_pause zeby bylo bezpiecznie watkowo
     @Slot()
@@ -142,6 +166,10 @@ class MusicController(QObject):
         self.isPlayingChanged.emit()
 
         if self._isPlaying:
+            pygame.mixer.music.unpause()
             print("Music playing")
         else:
+            pygame.mixer.music.pause()
             print("Music paused")
+
+        return True

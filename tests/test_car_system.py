@@ -28,6 +28,20 @@ class CarSystemTests(unittest.TestCase):
         music.play_pause()
         self.assertFalse(music.isPlaying)
 
+    def test_next_track_reports_playing_state(self):
+        car = CarSystem()
+        music = cast(MusicController, car.music)
+
+        music.next_track()
+
+        self.assertTrue(music.isPlaying)
+
+    def test_selecting_unknown_track_reports_failure(self):
+        car = CarSystem()
+        music = cast(MusicController, car.music)
+
+        self.assertFalse(music.select_track("Unknown track"))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -32,6 +32,8 @@ def test_contacts_node_calls_selected_number():
     assert result["result"] == {
         "success": True,
         "action": "call_contact",
+        "contact_name": "Anna Kowalska",
+        "number_type": "work",
     }
 
 
@@ -43,8 +45,24 @@ def test_music_node_toggles_playing_state():
     assert result["result"] == {
         "success": True,
         "action": "play_pause",
+        "isPlaying": True,
+        "currentTrackIndex": 0,
     }
     assert car.music.isPlaying is True # type: ignore
+
+
+def test_music_node_reports_unknown_track_as_failure():
+    car = CarSystem()
+
+    result = music_node(
+        {
+            "action": "select_track",
+            "payload": {"title": "Unknown track"},
+        },
+        car,
+    )
+
+    assert result["result"]["success"] is False
 
 
 def test_navigation_node_sets_destination():
@@ -61,8 +79,27 @@ def test_navigation_node_sets_destination():
     assert result["result"] == {
         "success": True,
         "action": "set_destination",
+        "destination": "Szczecin",
     }
     assert car.navigation.destination == "Szczecin" # type: ignore
+
+
+def test_navigation_node_rejects_empty_destination():
+    car = CarSystem()
+
+    result = navigation_node(
+        {
+            "action": "set_destination",
+            "payload": {"address": "   "},
+        },
+        car,
+    )
+
+    assert result["result"] == {
+        "success": False,
+        "action": "set_destination",
+        "destination": "   ",
+    }
 
 
 def test_build_graph_routes_contact_action():
@@ -84,4 +121,6 @@ def test_build_graph_routes_contact_action():
     assert result["result"] == {
         "success": True,
         "action": "call_contact",
+        "contact_name": "Anna Kowalska",
+        "number_type": "work",
     }

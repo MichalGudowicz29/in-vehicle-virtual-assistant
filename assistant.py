@@ -37,8 +37,6 @@ Zasady:
 - Korzystaj wyłącznie z dostępnych narzędzi i nie deklaruj sukcesu
   bez potwierdzenia wykonania operacji.
 - Wykonuj tylko żądane czynności. Nie rozpraszaj kierowcy.
-- Po pomyślnym wykonaniu zadania wywołaj notify() z krótkim komunikatem.
-  Nie generuj wtedy dodatkowej odpowiedzi tekstowej.
 - W przypadku błędu poinformuj krótko o problemie. Niebezpieczne
   polecenia odrzuć lub bezpiecznie odrocz.
 """
@@ -70,29 +68,18 @@ class Assistant:
         @tool
         def play_pause():
             """Włącza lub pauzuje muzykę."""
-            self._execute_graph_action("music", "play_pause", {})
-            return {
-                "success": True,
-                "message": "Play/Pause executed successfully."
-            }
+            return self._execute_graph_action("music", "play_pause", {})
 
         @tool
         def next_track():
             """Przełącza na następny utwór."""
-            self._execute_graph_action("music", "next_track", {})
-            return {
-                "success": True,
-                "message": "Next track executed successfully."
-            }
+            return self._execute_graph_action("music", "next_track", {})
             
         @tool
         def previous_track():
             """Przełącza na poprzedni utwór."""
-            self._execute_graph_action("music", "previous_track", {})
-            return {
-                "success": True,
-                "message": "Previous track executed successfully."
-            }
+            return self._execute_graph_action("music", "previous_track", {})
+
             
         
         @tool
@@ -143,15 +130,11 @@ class Assistant:
         @tool
         def select_track(title: str):
             """Wybiera utwór na podstawie tytułu."""
-            self._execute_graph_action(
+            return self._execute_graph_action(
                 "music",
                 "select_track",
                 {"title": title},
             )
-            return {
-                "success": True,
-                "message": f"Selected track '{title}'."
-            }
 
         # Kontakty
         @tool
@@ -183,7 +166,7 @@ class Assistant:
             number_type: Literal["mobile", "work"],
         ):
             """Inicjuje połączenie z kontaktem o podanej nazwie i typie numeru."""
-            result = self._execute_graph_action(
+            return self._execute_graph_action(
                 "contacts",
                 "call_contact",
                 {
@@ -191,36 +174,16 @@ class Assistant:
                     "number_type": number_type,
                 },
             )
-            requested = result["success"]
-
-            return {
-                "success": requested,
-                "message": (
-                    f"Rozpoczęto połączenie z {name} ({number_type})."
-                    if requested
-                    else f"Nie udało się znaleźć numeru dla {name} ({number_type})."
-                ),
-            }
-
-
+    
         # Nawigacja
         @tool
         def navigate_to(address: str):
             """Ustawia cel nawigacji na podany adres."""
-            result = self._execute_graph_action(
+            return self._execute_graph_action(
                 "navigation",
                 "set_destination",
                 {"address": address},
             )
-            requested = result["success"]
-            return {
-                "success": requested,
-                "message": (
-                    f"Navigate to {address} executed successfully."
-                    if requested
-                    else f"Nie udało się ustawić celu nawigacji na {address}."
-                ),
-            }
 
         return [
             # Muzyka

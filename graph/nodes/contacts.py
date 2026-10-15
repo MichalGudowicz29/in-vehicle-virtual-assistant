@@ -14,5 +14,7 @@ def contacts_node(state: HMIState, car: Any) -> dict[str, dict[str, Any]]:
         "result": {
             "success": bool(requested),
             "action": "call_contact",
+            "contact_name": payload["name"],
+            "number_type": payload["number_type"],
         }
     }

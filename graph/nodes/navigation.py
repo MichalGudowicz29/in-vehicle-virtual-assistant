@@ -5,11 +5,16 @@ from ..state import HMIState
 
 def navigation_node(state: HMIState, car: Any) -> dict[str, dict[str, Any]]:
     payload = state["payload"] if "payload" in state else {}
-    car.navigation.set_destination(payload["address"])
+    address = payload["address"]
+    success = bool(address.strip())
+
+    if success:
+        car.navigation.set_destination(address)
 
     return {
         "result": {
-            "success": True,
+            "success": success,
             "action": "set_destination",
+            "destination": address,
         }
     }

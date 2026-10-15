@@ -10,6 +10,19 @@ ApplicationWindow {
     height: 720
     title: "Car Assistant"
 
+    CallOverlay {
+        anchors.top: parent.top
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.topMargin: 12
+        z: 100
+
+        visible: car.contacts.isCalling
+
+        contactName: car.contacts.currentContactName
+
+        onHangUpClicked: car.contacts.end_call()
+    }
+
     StackView {
         id: stackView
         anchors.fill: parent
