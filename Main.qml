@@ -10,6 +10,12 @@ ApplicationWindow {
     height: 720
     title: "Car Assistant"
 
+    Theme {
+        id: theme
+    }
+
+    color: theme.background
+
     CallOverlay {
         anchors.top: parent.top
         anchors.horizontalCenter: parent.horizontalCenter

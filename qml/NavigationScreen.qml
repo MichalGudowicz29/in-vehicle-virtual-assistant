@@ -4,11 +4,15 @@ import QtQuick.Controls
 Item {
     id: root
 
+    Theme {
+        id: theme
+    }
+
     signal backClicked()
 
     Rectangle {
         anchors.fill: parent
-        color: "#101216"
+        color: theme.background
     }
 
     Column {
@@ -19,8 +23,8 @@ Item {
         Text {
             width: parent.width
             text: "NAVIGATION"
-            color: "white"
-            font.pixelSize: 42
+            color: theme.text
+            font.pixelSize: theme.titleSize
             font.bold: true
             horizontalAlignment: Text.AlignHCenter
         }
@@ -29,9 +33,19 @@ Item {
             id: addressField
             width: parent.width
             placeholderText: "ul. Końcowa 5, Szczecin"
+            color: theme.text
+            placeholderTextColor: theme.textMuted
+            padding: 14
+
+            background: Rectangle {
+                radius: theme.smallRadius
+                color: theme.surface
+                border.color: addressField.activeFocus ? theme.accent : theme.border
+                border.width: 1
+            }
         }
 
-        Button {
+        AppButton {
             text: "START NAVIGATION"
             anchors.horizontalCenter: parent.horizontalCenter
             onClicked: {
@@ -45,11 +59,11 @@ Item {
         Text {
             id: statusText
             width: parent.width
-            color: "#ffb4ab"
+            color: theme.error
             horizontalAlignment: Text.AlignHCenter
         }
 
-        Button {
+        AppButton {
             text: "BACK"
             anchors.horizontalCenter: parent.horizontalCenter
             onClicked: root.backClicked()

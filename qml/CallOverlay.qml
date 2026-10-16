@@ -4,13 +4,19 @@ import QtQuick.Controls
 Rectangle {
     id: root
 
+    Theme {
+        id: theme
+    }
+
     property string contactName: ""
     signal hangUpClicked()
 
     width: 360
     height: 70
-    radius: 12
-    color: "#252a33"
+    radius: theme.radius
+    color: theme.surfaceRaised
+    border.color: theme.accent
+    border.width: 1
 
     Row {
         anchors.centerIn: parent
@@ -18,10 +24,13 @@ Rectangle {
 
         Text {
             text: "Rozmowa z " + root.contactName
-            color: "white"
+            color: theme.text
+            font.pixelSize: 16
+            font.bold: true
         }
 
-        Button {
+        AppButton {
+            height: 38
             text: "ROZŁĄCZ"
             onClicked: root.hangUpClicked()
         }

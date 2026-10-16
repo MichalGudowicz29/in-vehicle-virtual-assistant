@@ -4,6 +4,10 @@ import QtQuick.Controls
 Item {
     id: root
 
+    Theme {
+        id: theme
+    }
+
     signal musicClicked()
     signal navigationClicked()
     signal contactsClicked()
@@ -25,7 +29,7 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        color: "#101216"
+        color: theme.background
     }
 
     Column {
@@ -36,8 +40,8 @@ Item {
         Text {
             width: parent.width
             text: "CAR ASSISTANT"
-            color: "white"
-            font.pixelSize: 42
+            color: theme.text
+            font.pixelSize: theme.titleSize
             font.bold: true
             horizontalAlignment: Text.AlignHCenter
         }
@@ -45,8 +49,8 @@ Item {
         Text {
             width: parent.width
             text: "Wybierz funkcję"
-            color: "#9aa4b2"
-            font.pixelSize: 20
+            color: theme.textMuted
+            font.pixelSize: theme.bodySize
             horizontalAlignment: Text.AlignHCenter
         }
 
@@ -54,7 +58,7 @@ Item {
             anchors.horizontalCenter: parent.horizontalCenter
             spacing: 20
 
-            Button {
+            AppButton {
                 width: 250
                 height: 140
                 text: "MUSIC"
@@ -62,7 +66,7 @@ Item {
                 onClicked: root.openMusicScreen()
             }
 
-            Button {
+            AppButton {
                 width: 250
                 height: 140
                 text: "NAVIGATION"
@@ -70,7 +74,7 @@ Item {
                 onClicked: root.openNavigationScreen()
             }
 
-            Button {
+            AppButton {
                 width: 250
                 height: 140
                 text: "CONTACTS"

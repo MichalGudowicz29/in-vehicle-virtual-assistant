@@ -6,6 +6,10 @@ import QtPositioning
 Item {
     id: root
 
+    Theme {
+        id: theme
+    }
+
     signal backClicked()
 
     Plugin {
@@ -55,7 +59,7 @@ Item {
             delegate: MapRoute {
                 route: routeData
                 line.width: 6
-                line.color: "#2878dc"
+                line.color: theme.accent
             }
         }
     }
@@ -96,8 +100,10 @@ Item {
         anchors.margins: 24
         width: 420
         height: 250
-        radius: 12
-        color: "#252a33"
+        radius: theme.radius
+        color: theme.surface
+        border.color: theme.border
+        border.width: 1
         z: 10
 
         Column {
@@ -107,7 +113,7 @@ Item {
 
             Text {
                 text: "PRZYSTANKI"
-                color: "white"
+                color: theme.text
                 font.bold: true
                 font.pixelSize: 20
             }
@@ -120,10 +126,21 @@ Item {
                     id: stopAddressField
                     width: parent.width - addStopButton.width - 8
                     placeholderText: "ul. Stacyjna 10, Szczecin"
+                    color: theme.text
+                    placeholderTextColor: theme.textMuted
+                    padding: 12
+
+                    background: Rectangle {
+                        radius: theme.smallRadius
+                        color: theme.background
+                        border.color: stopAddressField.activeFocus ? theme.accent : theme.border
+                        border.width: 1
+                    }
                 }
 
-                Button {
+                AppButton {
                     id: addStopButton
+                    width: 90
                     text: "DODAJ"
                     onClicked: {
                         const accepted = car.navigation.add_stop(stopAddressField.text)
@@ -150,11 +167,12 @@ Item {
                     Text {
                         width: parent.width - removeButton.width - 8
                         text: modelData.address
-                        color: "white"
+                        color: theme.text
                         elide: Text.ElideRight
                     }
 
-                    Button {
+                    AppButton {
+                        height: 36
                         id: removeButton
                         text: "USUŃ"
                         onClicked: car.navigation.remove_stop(modelData.address)
@@ -165,12 +183,12 @@ Item {
             Text {
                 id: stopStatus
                 text: ""
-                color: "#ffb4ab"
+                color: theme.error
             }
         }
     }
 
-    Button {
+    AppButton {
         anchors.left: parent.left
         anchors.bottom: parent.bottom
         anchors.margins: 24

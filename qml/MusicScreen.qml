@@ -4,11 +4,15 @@ import QtQuick.Controls
 Item {
     id: root
 
+    Theme {
+        id: theme
+    }
+
     signal backClicked()
 
     Rectangle {
         anchors.fill: parent
-        color: "#101216"
+        color: theme.background
     }
 
     Column {
@@ -17,23 +21,23 @@ Item {
 
         Text {
             text: "MUSIC"
-            color: "white"
-            font.pixelSize: 42
+            color: theme.text
+            font.pixelSize: theme.titleSize
             font.bold: true
             anchors.horizontalCenter: parent.horizontalCenter
         }
 
         Text {
             text: car.music.isPlaying ? "Playing" : "Paused"
-            color: "#9aa4b2"
-            font.pixelSize: 18
+            color: car.music.isPlaying ? theme.accent : theme.textMuted
+            font.pixelSize: theme.bodySize
             anchors.horizontalCenter: parent.horizontalCenter
         }
 
         Text {
             text: car.music.currentTrackIndex >= 0 ? car.music.currentTrackIndex : "No track selected"
-            color: "#9aa4b2"
-            font.pixelSize: 18
+            color: theme.textMuted
+            font.pixelSize: theme.bodySize
             anchors.horizontalCenter: parent.horizontalCenter
         }
 
@@ -41,23 +45,23 @@ Item {
             spacing: 16
             anchors.horizontalCenter: parent.horizontalCenter
 
-            Button {
+            AppButton {
                 text: "PREVIOUS"
                 onClicked: car.music.previous_track()
             }
 
-            Button {
+            AppButton {
                 text: car.music.isPlaying ? "PAUSE" : "PLAY"
                 onClicked: car.music.play_pause()
             }
 
-            Button {
+            AppButton {
                 text: "NEXT"
                 onClicked: car.music.next_track()
             }
         }
 
-        Button {
+        AppButton {
             text: "BACK"
             anchors.horizontalCenter: parent.horizontalCenter
             onClicked: root.backClicked()

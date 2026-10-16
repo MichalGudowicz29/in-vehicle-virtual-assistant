@@ -5,22 +5,26 @@ import QtQuick.Controls
 Item {
     id: root
 
+    Theme {
+        id: theme
+    }
+
     signal backClicked()
 
     Rectangle {
         anchors.fill: parent
-        color: "#101216"
+        color: theme.background
     }
 
     Column {
         anchors.fill: parent
-        anchors.margins: 40
+        anchors.margins: theme.pagePadding
         spacing: 20
 
         Text {
             text: "CONTACTS"
-            color: "white"
-            font.pixelSize: 42
+            color: theme.text
+            font.pixelSize: theme.titleSize
             font.bold: true
         }
 
@@ -40,8 +44,10 @@ Item {
             delegate: Rectangle {
                 width: ListView.view.width
                 height: 100
-                color: "#20242b"
-                radius: 12
+                color: theme.surface
+                radius: theme.radius
+                border.color: theme.border
+                border.width: 1
 
                 Column {
                     anchors.fill: parent
@@ -50,14 +56,15 @@ Item {
 
                     Text {
                         text: modelData.name
-                        color: "white"
+                        color: theme.text
                         font.pixelSize: 22
                     }
 
                     Row {
                         spacing: 10
 
-                        Button {
+                        AppButton {
+                            height: 38
                             visible: modelData.mobile !== undefined
                             text: "MOBILE"
                             onClicked: {
@@ -68,7 +75,8 @@ Item {
                             }
                         }
 
-                        Button {
+                        AppButton {
+                            height: 38
                             visible: modelData.work !== undefined
                             text: "WORK"
                             onClicked: {
@@ -83,7 +91,7 @@ Item {
             }
         }
 
-        Button {
+        AppButton {
             text: "BACK"
             onClicked: root.backClicked()
         }
