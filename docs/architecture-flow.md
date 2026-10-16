@@ -1,228 +1,304 @@
-# Architektura aplikacji — diagram przepływu
+# Architektura aplikacji — pełny przepływ
 
-Ten diagram pokazuje pełny przepływ polecenia głosowego od mikrofonu do
-kontrolera samochodu i z powrotem do użytkownika.
+Diagram pokazuje aktualną architekturę aplikacji: dwa sposoby sterowania
+samochodem (głos i dotyk), wspólny `CarSystem`, wykonanie akcji przez
+LangGraph oraz aktualizację interfejsu QML.
 
 ```mermaid
 flowchart TB
     User([Użytkownik])
     Mic([Mikrofon])
-    ASR[ASR\nvosk / asr.py]
-    Worker[VoiceWorker\nvoice_worker.py]
-    Assistant[Assistant\nassistant.py]
-    LLM[Agent / model językowy\nrozumie intencję]
-    TTS[TTS\ntts.py]
     Speaker([Głośnik])
 
-    subgraph Tools[Tools asystenta]
-        MusicTools[Muzyka\nplay_pause / next / previous / select]
-        ContactTools[Kontakty\nget_contacts / call_contact]
-        NavigationTools[Nawigacja\nnavigate_to]
+    subgraph Voice[Ścieżka głosowa — osobny QThread]
+        ASR[asr.py\nVOSK obecnie\nwymienny moduł ASR]
+        Worker[VoiceWorker\nlisten → Assistant → TTS]
+        Assistant[Assistant\ncreate_agent + pamięć sesji]
+        LLM[OpenAI gpt-4o-mini\nrozumienie polecenia]
+        TTS[tts.py\nSupertonic + osobny worker]
     end
 
-    subgraph Graph[LangGraph — warstwa wykonawcza]
+    subgraph Tools[Narzędzia Assistanta]
+        MusicRead[Odczyt muzyki\nget_track_list / search_track]
+        ContactsRead[Odczyt kontaktów\nget_contacts]
+        PlacesRead[Odczyt miejsc\nget_places_list]
+        MusicAction[Akcje muzyczne\nplay_pause / next / previous / select]
+        ContactAction[Akcja kontaktów\ncall_contact]
+        NavigationAction[Akcje nawigacji\nnavigate_to / add_stop]
+    end
+
+    subgraph Graph[LangGraph — wykonanie akcji]
         InputState[HMIState\nintent + action + payload]
         Router[router\nwybór domeny]
-        ContactsNode[contacts_node]
         MusicNode[music_node]
+        ContactsNode[contacts_node]
         NavigationNode[navigation_node]
-        UnknownNode[unknown_node]
-        Result[result\nsuccess + action + message]
+        UnknownNode[unknown]
+        Result[result\nsuccess + action + dane]
     end
 
-    subgraph Car[CarSystem — stan i kontrolery]
-        ContactController[ContactController\ncar.contacts]
-        MusicController[MusicController\ncar.music]
-        NavigationController[NavigationController\ncar.navigation]
+    subgraph Car[CarSystem — wspólny stan aplikacji]
+        CarSystem[CarSystem\nobiekt wystawiony do QML]
+        MusicController[MusicController\npygame + isPlaying + tracks]
+        ContactController[ContactController\ncontacts + isCalling]
+        NavigationController[NavigationController\ndestination + stops + routePoints]
     end
 
-    subgraph QML[Interfejs QML]
-        MainQML[main.qml]
-        MusicScreen[MusicScreen.qml]
-        ContactsScreen[ContactsScreen.qml]
-        MapScreen[MapScreen.qml]
-        Notification[notify / komunikat]
+    subgraph UI[Qt/QML — główny wątek]
+        Main[Main.qml\nApplicationWindow + StackView]
+        Home[HomeScreen.qml]
+        Music[MusicScreen.qml]
+        Contacts[ContactsScreen.qml]
+        Navigation[NavigationScreen.qml]
+        Map[MapScreen.qml\nQt Location + OSM]
+        CallOverlay[CallOverlay.qml\nvisible = car.contacts.isCalling]
+        RouteQuery[RouteQuery + RouteModel\nOSRM routing]
+        MapRoute[MapRoute\ntrasa na mapie]
     end
 
     User --> Mic
     Mic --> ASR
-    ASR -->|rozpoznany tekst| Worker
-    Worker -->|handle_text: text| Assistant
+    ASR -->|tekst| Worker
+    Worker -->|handle_text(text)| Assistant
     Assistant --> LLM
+    LLM -->|wybór narzędzia| MusicRead
+    LLM -->|wybór narzędzia| ContactsRead
+    LLM -->|wybór narzędzia| PlacesRead
+    LLM -->|wybór narzędzia| MusicAction
+    LLM -->|wybór narzędzia| ContactAction
+    LLM -->|wybór narzędzia| NavigationAction
 
-    LLM -->|wybiera narzędzie| MusicTools
-    LLM -->|wybiera narzędzie| ContactTools
-    LLM -->|wybiera narzędzie| NavigationTools
+    MusicRead -.-> MusicController
+    ContactsRead -.-> ContactController
+    PlacesRead -.-> NavigationController
 
-    MusicTools -->|akcja zmieniająca stan| InputState
-    ContactTools -->|call_contact| InputState
-    NavigationTools --> InputState
-
+    MusicAction -->|intent + action + payload| InputState
+    ContactAction -->|intent + action + payload| InputState
+    NavigationAction -->|intent + action + payload| InputState
     InputState --> Router
-    Router -->|intent = contacts| ContactsNode
-    Router -->|intent = music| MusicNode
-    Router -->|intent = navigation| NavigationNode
-    Router -->|nieznana intencja| UnknownNode
-
-    ContactsNode -->|call_contact: name + type| ContactController
-    MusicNode -->|play_pause / next / select| MusicController
-    NavigationNode -->|set_destination: address| NavigationController
-
-    ContactController --> Result
+    Router -->|music| MusicNode
+    Router -->|contacts| ContactsNode
+    Router -->|navigation| NavigationNode
+    Router -->|inna domena| UnknownNode
+    MusicNode -->|car.music| MusicController
+    ContactsNode -->|car.contacts| ContactController
+    NavigationNode -->|set_destination / add_stop| NavigationController
     MusicController --> Result
+    ContactController --> Result
     NavigationController --> Result
     UnknownNode --> Result
-
-    Result -->|wynik dla toola| Assistant
+    Result -->|wynik toola| Assistant
     Assistant -->|odpowiedź tekstowa| Worker
     Worker --> TTS
     TTS --> Speaker
 
-    ContactController -.->|sygnały i właściwości| ContactsScreen
-    MusicController -.->|sygnały i właściwości| MusicScreen
-    NavigationController -.->|destinationChanged| MapScreen
-    MainQML --> MusicScreen
-    MainQML --> ContactsScreen
-    MainQML --> MapScreen
-    Assistant -.->|notify| Notification
-    Notification -.-> MainQML
+    Main --> Home
+    Main --> Music
+    Main --> Contacts
+    Main --> Navigation
+    Main --> Map
+    Main --> CallOverlay
+    Main -.->|context property: car| CarSystem
+    CarSystem --> MusicController
+    CarSystem --> ContactController
+    CarSystem --> NavigationController
+    Music -.->|akcje i właściwości| MusicController
+    Contacts -.->|kontakty i call_contact| ContactController
+    Navigation -.->|akcje przystanków| NavigationController
+    ContactController -.->|isCallingChanged + currentContactName| CallOverlay
+    NavigationController -.->|routePointsChanged| Map
+    NavigationController -.->|mapScreenRequested| Main
+    Map --> RouteQuery
+    RouteQuery -->|OSRM| MapRoute
+    MapRoute --> Map
+    Home -.->|push| Main
 ```
 
-## Jak czytać diagram?
+## Główne ścieżki
 
-### 1. Wejście głosowe
+### 1. Polecenie głosowe
 
-Użytkownik mówi do mikrofonu. `ASR` zamienia mowę na tekst. `VoiceWorker`
-przekazuje tekst do `Assistant`.
-
-### 2. Rozumienie polecenia
-
-`Assistant` przekazuje tekst do agenta językowego. Agent nie steruje
-bezpośrednio kontrolerami. Wybiera odpowiedni tool i przekazuje mu argumenty.
-
-Przykład:
-
-```python
-call_contact(
-    name="Anna Kowalska",
-    number_type="work",
-)
+```text
+mikrofon
+  ↓
+asr.py (VOSK; moduł wymienny)
+  ↓ tekst
+VoiceWorker
+  ↓ handle_text()
+Assistant + model językowy
+  ↓ wybór toola
+LangGraph (dla akcji zmieniających stan)
+  ↓
+CarSystem / kontroler
+  ↓ wynik
+Assistant
+  ↓
+TTS → głośnik
 ```
 
-### 3. Przekazanie akcji do grafu
+`VoiceWorker` działa w osobnym `QThread`, a interfejs Qt/QML pozostaje w
+głównym wątku. Moduł ASR jest odseparowany od Assistanta: jego odpowiedzialność
+kończy się na zwróceniu tekstu.
 
-Tool zamienia wywołanie na stan grafu:
+### 2. Narzędzia Assistanta
+
+Narzędzia odczytujące dane pobierają stan bezpośrednio z kontrolera:
+
+```text
+get_track_list()  → car.music.tracks
+search_track()    → car.music.tracks
+get_contacts()    → car.contacts.contacts
+get_places_list() → car.navigation.places_list
+```
+
+Narzędzia wykonujące akcje przechodzą przez graph:
+
+```text
+play_pause / next_track / previous_track / select_track
+call_contact
+navigate_to / add_stop
+        ↓
+graph.invoke({intent, action, payload})
+```
+
+### 3. LangGraph
+
+```text
+START
+  ↓
+router
+  ├── music      → music_node      → car.music
+  ├── contacts   → contacts_node   → car.contacts
+  ├── navigation → navigation_node → car.navigation
+  └── unknown    → wynik błędu
+  ↓
+END
+```
+
+Stan wejściowy akcji ma postać:
 
 ```python
 {
-    "intent": "contacts",
-    "action": "call_contact",
+    "intent": "navigation",
+    "action": "add_stop",
     "payload": {
-        "name": "Anna Kowalska",
-        "number_type": "work",
+        "address": "ul. Stacyjna 10, Szczecin",
     },
 }
 ```
 
-Znaczenie pól:
-
-- `intent` — domena, na przykład `contacts` albo `music`;
-- `action` — konkretna operacja;
-- `payload` — argumenty operacji;
-- `result` — wynik po wykonaniu node’a.
-
-### 4. Routing
-
-`router` patrzy na `intent` i wybiera jeden node:
-
-```text
-contacts   → contacts_node
-music      → music_node
-navigation → navigation_node
-inne       → unknown_node
-```
-
-### 5. Wykonanie akcji
-
-Node wywołuje metodę właściwego kontrolera:
-
-```text
-contacts_node   → car.contacts.call_contact()
-music_node      → car.music.play_pause()
-navigation_node → car.navigation.set_destination()
-```
-
-Logika domenowa pozostaje w kontrolerach `CarSystem`, a nie w routerze i nie w
-modelu językowym.
-
-### 6. Wynik i odpowiedź
-
-Node zwraca ujednolicony wynik:
+Node zwraca wynik do Assistanta:
 
 ```python
 {
-    "success": True,
-    "action": "call_contact",
+    "result": {
+        "success": True,
+        "action": "add_stop",
+        "stop": "ul. Stacyjna 10, Szczecin",
+    },
 }
 ```
 
-`Assistant` wykorzystuje wynik do przygotowania komunikatu. `VoiceWorker`
-przekazuje go do TTS, a TTS wypowiada go użytkownikowi.
+### 4. Nawigacja i mapa
 
-## Osobna ścieżka QML
+`NavigationController` przechowuje stały punkt startowy, cel oraz listę
+przystanków. Każdy adres jest wyszukiwany w testowej bazie miejsc i ma własne
+współrzędne.
 
-Kontrolery mogą równolegle emitować sygnały i aktualizować właściwości QML.
-Dlatego ekran nie musi czekać na odpowiedź głosową:
+```text
+start → stop 1 → stop 2 → destination
+                 ↓
+        routePointsChanged
+                 ↓
+MapScreen.qml
+                 ↓
+RouteQuery + RouteModel
+                 ↓
+OSM / OSRM
+                 ↓
+MapRoute na mapie
+```
+
+Cel można ustawić głosem przez `navigate_to(street, city, number)`, a
+przystanek dodać głosem przez `add_stop(street, city, number)` albo dotykiem
+w `MapScreen.qml`, wpisując dokładny adres testowy. Zmiana celu emituje także
+`mapScreenRequested`, dzięki czemu `Main.qml` otwiera ekran mapy.
+
+### 5. Sterowanie dotykowe i CallOverlay
+
+`Main.qml` zarządza ekranami przez `StackView`:
+
+```text
+HomeScreen
+  ├── MusicScreen
+  ├── ContactsScreen
+  ├── NavigationScreen
+  └── MapScreen
+```
+
+`CallOverlay.qml` jest dzieckiem `ApplicationWindow`, a nie konkretnego
+ekranu. Dlatego pozostaje widoczny podczas przechodzenia między ekranami,
+dopóki `car.contacts.isCalling` ma wartość `true`. Przycisk rozłączenia
+wywołuje `car.contacts.end_call()`, zmienia stan na `false` i ukrywa overlay.
+
+Kontrolery emitują sygnały i udostępniają właściwości QML:
 
 ```text
 MusicController      → MusicScreen.qml
-ContactController    → ContactsScreen.qml
+ContactController    → ContactsScreen.qml + CallOverlay.qml
 NavigationController → MapScreen.qml
 ```
 
-Przykładowo `set_destination()` może zmienić właściwość `destination`, a
-`MapScreen.qml` zareaguje na zmianę i pokaże nowy cel.
-
-## Najważniejszy podział odpowiedzialności
+## Podział odpowiedzialności
 
 ```text
 ASR:
     zamienia mowę na tekst
 
-Assistant / agent:
-    rozumie język i wybiera tool
+VoiceWorker:
+    łączy ASR, Assistanta i TTS w pętli głosowej
+
+Assistant / model:
+    rozumie polecenie i wybiera narzędzie
 
 Tool:
-    mapuje argumenty na intent, action i payload
+    odczytuje stan albo tworzy intent, action i payload
 
 Graph:
-    wybiera node i prowadzi wykonanie
+    wybiera domenę i uruchamia właściwy node
 
 Node:
-    wywołuje właściwy kontroler
+    wywołuje kontroler
 
 Controller:
-    zmienia stan aplikacji
+    przechowuje stan i wykonuje operację
 
 QML:
-    pokazuje stan i reaguje na sygnały
+    pokazuje stan i obsługuje sterowanie dotykowe
 
 TTS:
-    zamienia odpowiedź na mowę
+    zamienia odpowiedź Assistanta na mowę
 ```
 
-## Ważna zasada dla kontaktów
-
-Jeśli kontakt ma dwa numery, agent nie powinien wywoływać obu wariantów.
-Najpierw musi zapytać użytkownika o typ numeru:
+## Wielowątkowość
 
 ```text
-Użytkownik: Zadzwoń do Anny.
-Agent:     Czy wybrać numer mobilny czy służbowy?
-Użytkownik: Służbowy.
-Agent:     call_contact(name="Anna Kowalska", number_type="work")
+główny wątek Qt:
+    QApplication + QML + CarSystem + kontrolery
+
+osobny QThread:
+    VoiceWorker + mikrofon + Assistant
+
+osobny daemon Thread:
+    tts.py worker + synteza i odtwarzanie audio
 ```
 
-`call_contact` powinien zostać wywołany dokładnie raz po uzyskaniu kompletnego
-`payload`.
+Metody kontrolerów, które mogą zostać wywołane z wątku Assistanta, przekazują
+zmianę stanu do właściwego wątku Qt przez `QMetaObject.invokeMethod` i
+`QueuedConnection`.
 
+## Obecny stan ASR
+
+Aktualnie `asr.py` korzysta z VOSK. Interfejs aplikacji został rozdzielony tak,
+aby późniejsza podmiana na Whisper wymagała zmiany modułu ASR, a nie graphu,
+kontrolerów ani ekranów QML.

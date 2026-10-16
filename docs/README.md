@@ -159,20 +159,27 @@ agent musi najpierw zapytać użytkownika, który wybrać.
 
 ### `NavigationController`
 
-Przechowuje właściwość:
+Przechowuje stały punkt startowy, cel, przystanki oraz punkty trasy:
 
 ```python
 destination
+stops
+routePoints
 ```
 
-Akcja:
+Udostępnia akcje:
 
 ```python
 set_destination(address)
+add_stop(address)
+remove_stop(address)
+clear_route()
 ```
 
-Po ustawieniu celu emituje `destinationChanged` i `mapScreenRequested`. `Main.qml`
-nasłuchuje `mapScreenRequested` i otwiera `MapScreen`.
+Adresy są wybierane z testowej bazy miejsc i mają przypisane współrzędne.
+Zmiana celu emituje `destinationChanged`, `routePointsChanged` oraz
+`mapScreenRequested`. Dodanie lub usunięcie przystanku emituje
+`stopsChanged` i `routePointsChanged`.
 
 ## 6. Voice pipeline
 
@@ -210,6 +217,7 @@ Te narzędzia pobierają dane, ale nie zmieniają stanu przez graf:
 get_contacts()
 get_track_list()
 search_track(query)
+get_places_list()
 ```
 
 ### Tools wykonujące akcję
@@ -222,7 +230,8 @@ next_track()
 previous_track()
 select_track(title)
 call_contact(name, number_type)
-navigate_to(address)
+navigate_to(street, city, number)
+add_stop(street, city, number)
 ```
 
 Przykładowy tool muzyczny wywołuje logicznie:
@@ -315,16 +324,22 @@ ContactsScreen.qml
   → car.contacts.call_contact(name, type)
 
 MapScreen.qml
-  → pokazuje mapę QtLocation
+  → pokazuje mapę Qt Location z pluginem OSM
+  → RouteQuery + RouteModel pobierają trasę przez OSRM
+  → wpisuje, dodaje i usuwa testowe przystanki
 
 Main.qml
   → car.navigation.mapScreenRequested
   → otwiera MapScreen
+
+CallOverlay.qml
+  → widoczny niezależnie od aktywnego ekranu
+  → car.contacts.isCalling
+  → car.contacts.end_call()
 ```
 
-Ważne: sygnał `mapScreenRequested` otwiera ekran mapy, ale obecna wersja
-`MapScreen.qml` nie rysuje jeszcze pinezki na podstawie adresu. Do tego trzeba
-później dodać geokodowanie adresu albo testowe współrzędne.
+`MapScreen.qml` buduje waypointy z `car.navigation.routePoints`. Po ich zmianie
+`RouteModel` jest aktualizowany, a `MapRoute` rysuje nową trasę.
 
 ## 10. Wielowątkowość
 
@@ -369,14 +384,6 @@ tests/test_assistant_graph.py
 ```
 
 Sprawdzają routing, node’y, wynik akcji i połączenie `Assistant → Graph`.
-
-### Test ASR
-
-```text
-tests/test_asr.py
-```
-
-Sprawdza podstawowe zachowanie modułu rozpoznawania mowy.
 
 Uruchomienie wszystkich testów:
 
