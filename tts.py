@@ -1,4 +1,4 @@
-from queue import Queue
+from queue import Empty, Queue
 from threading import Thread
 
 import numpy as np
@@ -9,6 +9,7 @@ from supertonic import TTS
 tts = TTS(auto_download=True)
 style = tts.get_voice_style("M2")
 speech_queue = Queue()
+speech_errors = Queue()
 
 
 def worker():
@@ -19,6 +20,7 @@ def worker():
             sd.play(np.squeeze(wav))
             sd.wait()
         except Exception as error:
+            speech_errors.put(error)
             print(f"TTS error: {error}")
         finally:
             speech_queue.task_done()
@@ -33,3 +35,8 @@ def speak(text):
 
 def wait_until_speech_done():
     speech_queue.join()
+    try:
+        error = speech_errors.get_nowait()
+    except Empty:
+        return
+    raise RuntimeError(f"TTS playback failed: {error}") from error

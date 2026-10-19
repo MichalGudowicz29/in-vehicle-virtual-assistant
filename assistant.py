@@ -53,6 +53,7 @@ class Assistant:
         }
         self.graph = build_graph(car)
         self.execution_events: list[dict[str, Any]] = []
+        self.current_turn_id: str | None = None
         self.agent = self.initialize_agent()
 
     def _execute_graph_action(self, intent: str, action: str, payload: dict):
@@ -62,6 +63,7 @@ class Assistant:
         started_at = time.perf_counter_ns()
         self.execution_events.append({
             "type": "graph_action_started",
+            "turn_id": getattr(self, "current_turn_id", None),
             "intent": intent,
             "action": action,
             "payload": payload,
@@ -78,6 +80,7 @@ class Assistant:
             finished_at = time.perf_counter_ns()
             self.execution_events.append({
                 "type": "graph_action_failed",
+                "turn_id": getattr(self, "current_turn_id", None),
                 "intent": intent,
                 "action": action,
                 "error_type": type(error).__name__,
@@ -91,8 +94,47 @@ class Assistant:
         finished_at = time.perf_counter_ns()
         self.execution_events.append({
             "type": "graph_action_finished",
+            "turn_id": getattr(self, "current_turn_id", None),
             "intent": intent,
             "action": action,
+            "success": result.get("success", False),
+            "result": result,
+            "duration_ms": (finished_at - started_at) / 1_000_000,
+            "time_ns": finished_at,
+        })
+        return result
+
+    def _execute_local_tool(self, tool_name: str, operation):
+        if not hasattr(self, "execution_events"):
+            self.execution_events = []
+
+        started_at = time.perf_counter_ns()
+        self.execution_events.append({
+            "type": "local_tool_started",
+            "turn_id": self.current_turn_id,
+            "tool": tool_name,
+            "time_ns": started_at,
+        })
+        try:
+            result = operation()
+        except Exception as error:
+            finished_at = time.perf_counter_ns()
+            self.execution_events.append({
+                "type": "local_tool_failed",
+                "turn_id": self.current_turn_id,
+                "tool": tool_name,
+                "error_type": type(error).__name__,
+                "error_message": str(error),
+                "duration_ms": (finished_at - started_at) / 1_000_000,
+                "time_ns": finished_at,
+            })
+            raise
+
+        finished_at = time.perf_counter_ns()
+        self.execution_events.append({
+            "type": "local_tool_finished",
+            "turn_id": self.current_turn_id,
+            "tool": tool_name,
             "success": result.get("success", False),
             "result": result,
             "duration_ms": (finished_at - started_at) / 1_000_000,
@@ -124,47 +166,50 @@ class Assistant:
         @tool
         def get_track_list():
             """Zwraca listę dostępnych utworów."""
-            tracks = car.music.tracks
+            def operation():
+                tracks = car.music.tracks
+                return {
+                    "success": True,
+                    "tracks": [
+                        {
+                            "id": index,
+                            "title": track["title"],
+                            "author": track["artist"],
+                        }
+                        for index, track in enumerate(tracks)
+                    ],
+                    "message": "Retrieved track list successfully.",
+                }
 
-            return {
-                "success": True,
-                "tracks": [
+            return self._execute_local_tool("get_track_list", operation)
+
+        @tool
+        def search_track(query: str):
+            """Wyszukuje utwory po tytule lub wykonawcy."""
+            def operation():
+                normalized_query = query.lower()
+                tracks = car.music.tracks
+                matches = [
                     {
                         "id": index,
                         "title": track["title"],
                         "author": track["artist"],
                     }
                     for index, track in enumerate(tracks)
-                ],
-                "message": "Retrieved track list successfully.",
-            }
-            
-        @tool
-        def search_track(query: str):
-            """Wyszukuje utwory po tytule lub wykonawcy."""
-            query = query.lower()
-            tracks = car.music.tracks
-
-            matches = [
-                {
-                    "id": index,
-                    "title": track["title"],
-                    "author": track["artist"],
+                    if normalized_query in track["title"].lower()
+                    or normalized_query in track["artist"].lower()
+                ]
+                return {
+                    "success": bool(matches),
+                    "tracks": matches,
+                    "message": (
+                        f"Found {len(matches)} matching tracks."
+                        if matches
+                        else "No tracks found."
+                    ),
                 }
-                for index, track in enumerate(tracks)
-                if query in track["title"].lower()
-                or query in track["artist"].lower()
-            ]
 
-            return {
-                "success": bool(matches),
-                "tracks": matches,
-                "message": (
-                    f"Found {len(matches)} matching tracks."
-                    if matches
-                    else "No tracks found."
-                ),
-            }
+            return self._execute_local_tool("search_track", operation)
         
         @tool
         def select_track(title: str):
@@ -179,25 +224,26 @@ class Assistant:
         @tool
         def get_contacts():
             """Zwraca wszystkich zapisanych kontaktów wraz ze wszystkimi numerami."""
-
-            contacts = [
-                {
-                    "id": index,
-                    "name": contact["name"],
-                    "numbers": {
-                        key: value
-                        for key, value in contact.items()
-                        if key != "name"
-                    },
+            def operation():
+                contacts = [
+                    {
+                        "id": index,
+                        "name": contact["name"],
+                        "numbers": {
+                            key: value
+                            for key, value in contact.items()
+                            if key != "name"
+                        },
+                    }
+                    for index, contact in enumerate(car.contacts.contacts)
+                ]
+                return {
+                    "success": bool(contacts),
+                    "contacts": contacts,
+                    "message": "Lista kontaktów została pobrana.",
                 }
-                for index, contact in enumerate(car.contacts.contacts)
-            ]
 
-            return {
-                "success": bool(contacts),
-                "contacts": contacts,
-                "message": "Lista kontaktów została pobrana.",
-            }
+            return self._execute_local_tool("get_contacts", operation)
         
         @tool
         def call_contact(
@@ -238,11 +284,14 @@ class Assistant:
         @tool 
         def get_places_list():
             """Zwraca listę dostępnych miejsc, ktore mozna dodac jako przystanek."""
-            return {
-                "success": True,
-                "places": car.navigation.places_list,
-                "message": "Retrieved places list successfully.",
-            }   
+            def operation():
+                return {
+                    "success": True,
+                    "places": car.navigation.places_list,
+                    "message": "Retrieved places list successfully.",
+                }
+
+            return self._execute_local_tool("get_places_list", operation)
             
 
         return [
@@ -276,7 +325,7 @@ class Assistant:
     
     
     # dodac try except 
-    def handle_text(self, text: str):
+    def handle_text(self, text: str, turn_id: str | None = None):
         input_data: InputAgentState = {
             "messages": [
                 {
@@ -286,41 +335,46 @@ class Assistant:
             ]
         }
 
-        final_text = ""
+        previous_turn_id = self.current_turn_id
+        self.current_turn_id = turn_id
+        try:
+            final_text = ""
 
-        for raw_chunk in self.agent.stream(
-            input_data,
-            config=self.thread_config,
-            stream_mode="updates",
-            version="v2",
-        ):
-            if not isinstance(raw_chunk, dict):
-                continue
-
-            data = raw_chunk.get("data")
-            if not isinstance(data, dict):
-                continue
-
-            for node_name, raw_update in data.items():
-                print(f"\n--- node: {node_name} ---")
-
-                if not isinstance(raw_update, dict):
+            for raw_chunk in self.agent.stream(
+                input_data,
+                config=self.thread_config,
+                stream_mode="updates",
+                version="v2",
+            ):
+                if not isinstance(raw_chunk, dict):
                     continue
 
-                messages = raw_update.get("messages", [])
-                if not isinstance(messages, list):
+                data = raw_chunk.get("data")
+                if not isinstance(data, dict):
                     continue
 
-                for message in messages:
-                    content = getattr(message, "content", "")
-                    print(f"type: {type(message).__name__}")
-                    print(f"content: {content}")
+                for node_name, raw_update in data.items():
+                    print(f"\n--- node: {node_name} ---")
 
-                    tool_calls = getattr(message, "tool_calls", None)
-                    if tool_calls:
-                        print(f"tool calls: {tool_calls}")
+                    if not isinstance(raw_update, dict):
+                        continue
 
-                    if isinstance(content, str) and content:
-                        final_text = content
+                    messages = raw_update.get("messages", [])
+                    if not isinstance(messages, list):
+                        continue
 
-        return final_text
+                    for message in messages:
+                        content = getattr(message, "content", "")
+                        print(f"type: {type(message).__name__}")
+                        print(f"content: {content}")
+
+                        tool_calls = getattr(message, "tool_calls", None)
+                        if tool_calls:
+                            print(f"tool calls: {tool_calls}")
+
+                        if isinstance(content, str) and content:
+                            final_text = content
+
+            return final_text
+        finally:
+            self.current_turn_id = previous_turn_id
