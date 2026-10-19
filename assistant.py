@@ -1,4 +1,5 @@
 import os
+import time
 from operator import index
 
 from distro import name
@@ -51,15 +52,53 @@ class Assistant:
             "recursion_limit": 8,
         }
         self.graph = build_graph(car)
+        self.execution_events: list[dict[str, Any]] = []
         self.agent = self.initialize_agent()
 
     def _execute_graph_action(self, intent: str, action: str, payload: dict):
-        state = self.graph.invoke({
+        if not hasattr(self, "execution_events"):
+            self.execution_events = []
+
+        started_at = time.perf_counter_ns()
+        self.execution_events.append({
+            "type": "graph_action_started",
             "intent": intent,
             "action": action,
             "payload": payload,
+            "time_ns": started_at,
         })
-        return state["result"]
+
+        try:
+            state = self.graph.invoke({
+                "intent": intent,
+                "action": action,
+                "payload": payload,
+            })
+        except Exception as error:
+            finished_at = time.perf_counter_ns()
+            self.execution_events.append({
+                "type": "graph_action_failed",
+                "intent": intent,
+                "action": action,
+                "error_type": type(error).__name__,
+                "error_message": str(error),
+                "duration_ms": (finished_at - started_at) / 1_000_000,
+                "time_ns": finished_at,
+            })
+            raise
+
+        result = state["result"]
+        finished_at = time.perf_counter_ns()
+        self.execution_events.append({
+            "type": "graph_action_finished",
+            "intent": intent,
+            "action": action,
+            "success": result.get("success", False),
+            "result": result,
+            "duration_ms": (finished_at - started_at) / 1_000_000,
+            "time_ns": finished_at,
+        })
+        return result
         
     def build_tools(self):
         car = self.car
