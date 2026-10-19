@@ -2,20 +2,27 @@
 
 Diagram pokazuje aktualną architekturę aplikacji: dwa sposoby sterowania
 samochodem (głos i dotyk), wspólny `CarSystem`, wykonanie akcji przez
-LangGraph oraz aktualizację interfejsu QML.
+LangGraph, aktualizację interfejsu QML oraz rejestrowanie sesji badawczej.
 
 ```mermaid
 flowchart TB
     User([Użytkownik])
     Mic([Mikrofon])
+    AudioFile([Plik audio\nprzyszły runner datasetu])
     Speaker([Głośnik])
 
     subgraph Voice[Ścieżka głosowa — osobny QThread]
         ASR[asr.py\nVOSK obecnie\nwymienny moduł ASR]
-        Worker[VoiceWorker\nlisten → Assistant → TTS]
+        Worker[VoiceWorker\npętla mikrofonu]
+        Runner[ConversationRunner\nASR → Assistant → TTS]
         Assistant[Assistant\ncreate_agent + pamięć sesji]
         LLM[OpenAI gpt-4o-mini\nrozumienie polecenia]
         TTS[tts.py\nSupertonic + osobny worker]
+    end
+
+    subgraph Evaluation[Ewaluacja]
+        Logger[EventLogger\neventy + run_id + turn_id]
+        JSONL[(evaluation/runs\nrun_id.jsonl)]
     end
 
     subgraph Tools[Narzędzia Assistanta]
@@ -58,8 +65,10 @@ flowchart TB
 
     User --> Mic
     Mic --> ASR
-    ASR -->|tekst| Worker
-    Worker -->|handle_text(text)| Assistant
+    ASR -->|tekst| Runner
+    Worker -->|listen(stop_event)| Runner
+    AudioFile -.->|transcribe callable| Runner
+    Runner -->|handle_text(text, turn_id)| Assistant
     Assistant --> LLM
     LLM -->|wybór narzędzia| MusicRead
     LLM -->|wybór narzędzia| ContactsRead
@@ -88,9 +97,12 @@ flowchart TB
     NavigationController --> Result
     UnknownNode --> Result
     Result -->|wynik toola| Assistant
-    Assistant -->|odpowiedź tekstowa| Worker
-    Worker --> TTS
+    Assistant -->|odpowiedź tekstowa| Runner
+    Runner --> TTS
     TTS --> Speaker
+    Runner -->|eventy| Logger
+    Assistant -->|eventy tooli| Logger
+    Logger --> JSONL
 
     Main --> Home
     Main --> Music
@@ -124,7 +136,9 @@ mikrofon
 asr.py (VOSK; moduł wymienny)
   ↓ tekst
 VoiceWorker
-  ↓ handle_text()
+  ↓ listen(stop_event)
+ConversationRunner
+  ↓ handle_text(turn_id)
 Assistant + model językowy
   ↓ wybór toola
 LangGraph (dla akcji zmieniających stan)
@@ -137,8 +151,11 @@ TTS → głośnik
 ```
 
 `VoiceWorker` działa w osobnym `QThread`, a interfejs Qt/QML pozostaje w
-głównym wątku. Moduł ASR jest odseparowany od Assistanta: jego odpowiedzialność
-kończy się na zwróceniu tekstu.
+głównym wątku. `ConversationRunner` wykonuje każdą turę niezależnie od źródła
+audio: `VoiceWorker` przekazuje mu mikrofon, a przyszły runner datasetu poda
+funkcję ASR dla pliku. `EventLogger` zapisuje eventy do
+`evaluation/runs/<run_id>.jsonl`. Moduł ASR jest odseparowany od Assistanta:
+jego odpowiedzialność kończy się na zwróceniu tekstu.
 
 ### 2. Narzędzia Assistanta
 
@@ -256,7 +273,13 @@ ASR:
     zamienia mowę na tekst
 
 VoiceWorker:
-    łączy ASR, Assistanta i TTS w pętli głosowej
+    przekazuje mikrofon do ConversationRunner w pętli głosowej
+
+ConversationRunner:
+    wykonuje ASR, Assistanta i TTS dla jednej tury
+
+EventLogger:
+    zapisuje eventy tury do pliku JSONL
 
 Assistant / model:
     rozumie polecenie i wybiera narzędzie
