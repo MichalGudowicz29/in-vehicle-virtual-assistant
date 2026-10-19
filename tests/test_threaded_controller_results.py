@@ -1,9 +1,11 @@
 import threading
 import time
+from typing import cast
 
 from PySide6.QtCore import QCoreApplication
 
 from CarSystem.car_system import CarSystem
+from CarSystem.navigation_controller import NavigationController
 
 
 def _call_from_background(action):
@@ -48,9 +50,10 @@ def test_background_contact_action_returns_its_real_failure():
 
 def test_background_navigation_action_returns_its_real_failure():
     car = CarSystem()
+    navigation = cast(NavigationController, car.navigation)
 
     success = _call_from_background(
-        lambda: car.navigation.set_destination("Unknown place")
+        lambda: navigation.set_destination("Unknown place")
     )
 
     assert success is False
