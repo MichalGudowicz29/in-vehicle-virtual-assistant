@@ -5,7 +5,6 @@ from pathlib import Path
 from PySide6.QtCore import QObject
 
 from evaluation.conversation_runner import ConversationRunner
-from tts import speak, wait_until_speech_done
 
 
 class VoiceWorker(QObject):
@@ -38,6 +37,8 @@ class VoiceWorker(QObject):
 
     @staticmethod
     def _speak_response(response: str) -> None:
+        from tts import speak, wait_until_speech_done
+
         speak(response)
         wait_until_speech_done()
         time.sleep(0.7)

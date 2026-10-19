@@ -66,9 +66,9 @@ flowchart TB
     User --> Mic
     Mic --> ASR
     ASR -->|tekst| Runner
-    Worker -->|listen(stop_event)| Runner
+    Worker -->|nasłuchiwanie| Runner
     AudioFile -.->|transcribe callable| Runner
-    Runner -->|handle_text(text, turn_id)| Assistant
+    Runner -->|tekst i turn_id| Assistant
     Assistant --> LLM
     LLM -->|wybór narzędzia| MusicRead
     LLM -->|wybór narzędzia| ContactsRead
