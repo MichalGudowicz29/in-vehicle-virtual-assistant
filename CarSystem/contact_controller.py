@@ -1,4 +1,4 @@
-from PySide6.QtCore import Q_ARG, QMetaObject, QObject, Property, QThread, Qt, Signal, Slot
+from PySide6.QtCore import Q_ARG, Q_RETURN_ARG, QMetaObject, QObject, Property, QThread, Qt, Signal, Slot
 
 
 class ContactController(QObject):
@@ -58,7 +58,7 @@ class ContactController(QObject):
             return ""
         return self._contacts[self._current_contact_index]["name"]
 
-    @Slot(str, str)
+    @Slot(str, str, result=bool)
     def call_contact(self, contact_name: str, contact_type: str):
         contact = next((
             contact
@@ -67,18 +67,18 @@ class ContactController(QObject):
         ), None)
         
         if QThread.currentThread() != self.thread():
-            QMetaObject.invokeMethod(
+            return QMetaObject.invokeMethod(
                 self,
                 "_call_contact",
-                Qt.ConnectionType.QueuedConnection,
+                Qt.ConnectionType.BlockingQueuedConnection,
+                Q_RETURN_ARG(bool),
                 Q_ARG(str, contact_name),
                 Q_ARG(str, contact_type),
             )
-            return True
 
         return self._call_contact(contact_name, contact_type)
 
-    @Slot(str, str)
+    @Slot(str, str, result=bool)
     def _call_contact(self, contact_name: str, contact_type: str = "mobile"):
         for contact in self._contacts:
             if contact["name"] == contact_name:

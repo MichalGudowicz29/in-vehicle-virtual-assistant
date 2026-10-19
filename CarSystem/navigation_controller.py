@@ -1,4 +1,4 @@
-from PySide6.QtCore import Q_ARG, QMetaObject, QObject, Property, QThread, Qt, Signal, Slot
+from PySide6.QtCore import Q_ARG, Q_RETURN_ARG, QMetaObject, QObject, Property, QThread, Qt, Signal, Slot
 
 
 class NavigationController(QObject):
@@ -59,13 +59,13 @@ class NavigationController(QObject):
     @Slot(str, result=bool)
     def set_destination(self, address: str):
         if QThread.currentThread() != self.thread():
-            QMetaObject.invokeMethod(
+            return QMetaObject.invokeMethod(
                 self,
                 "_set_destination",
-                Qt.ConnectionType.QueuedConnection,
+                Qt.ConnectionType.BlockingQueuedConnection,
+                Q_RETURN_ARG(bool),
                 Q_ARG(str, address),
             )
-            return True
 
         return self._set_destination(address)
 
@@ -102,6 +102,19 @@ class NavigationController(QObject):
 
     @Slot(str, result=bool)
     def add_stop(self, address: str):
+        if QThread.currentThread() != self.thread():
+            return QMetaObject.invokeMethod(
+                self,
+                "_add_stop",
+                Qt.ConnectionType.BlockingQueuedConnection,
+                Q_RETURN_ARG(bool),
+                Q_ARG(str, address),
+            )
+
+        return self._add_stop(address)
+
+    @Slot(str, result=bool)
+    def _add_stop(self, address: str):
         place = self.get_coordinates(address)
         if place is None:
             return False

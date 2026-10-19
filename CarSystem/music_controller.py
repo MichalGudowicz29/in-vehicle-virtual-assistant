@@ -1,4 +1,4 @@
-from PySide6.QtCore import Q_ARG, QMetaObject, QObject, Property, QThread, Qt, Signal, Slot
+from PySide6.QtCore import Q_ARG, Q_RETURN_ARG, QMetaObject, QObject, Property, QThread, Qt, Signal, Slot
 import pygame
 
  
@@ -12,17 +12,17 @@ class MusicController(QObject):
         super().__init__()
         self._tracks = [
             {
-                "title": "Afryka",
+                "title": "Christmas Eve",
                 "artist": "Toto",
                 "path": "music/1.mp3",
             },
             {
-                "title": "Europa",
+                "title": "Chill song",
                 "artist": "Fleetwood Mac",
                 "path": "music/2.mp3",
             },
             {
-                "title": "Ameryka",
+                "title": "Dynamic music",
                 "artist": "a-ha",
                 "path": "music/3.mp3",
             },
@@ -53,20 +53,20 @@ class MusicController(QObject):
         return self._isPlaying
 
     # Bezpiecznie watkowa obsluga nastepnego utworu
-    @Slot()
+    @Slot(result=bool)
     def next_track(self):
         if QThread.currentThread() != self.thread():
-            QMetaObject.invokeMethod(
+            return QMetaObject.invokeMethod(
                 self,
                 "_next_track",
-                Qt.ConnectionType.QueuedConnection,
+                Qt.ConnectionType.BlockingQueuedConnection,
+                Q_RETURN_ARG(bool),
             )
-            return True
 
         return self._next_track()
   
     # metoda do zmiany tracka wywolywana przez next_track zeby bylo bezpiecznie watkowo
-    @Slot()
+    @Slot(result=bool)
     def _next_track(self):
         if not self._tracks:
             return False
@@ -85,20 +85,20 @@ class MusicController(QObject):
         return True
 
     # Bezpiecznie watkowa obsluga poprzedniego utworu
-    @Slot()
+    @Slot(result=bool)
     def previous_track(self):
         if QThread.currentThread() != self.thread():
-            QMetaObject.invokeMethod(
+            return QMetaObject.invokeMethod(
                 self,
                 "_previous_track",
-                Qt.ConnectionType.QueuedConnection,
+                Qt.ConnectionType.BlockingQueuedConnection,
+                Q_RETURN_ARG(bool),
             )
-            return True
 
         return self._previous_track()
         
     # metoda do zmiany tracka wywolywana przez previous_track zeby bylo bezpiecznie watkowo
-    @Slot()
+    @Slot(result=bool)
     def _previous_track(self):
         if not self._tracks:
             return False
@@ -115,21 +115,21 @@ class MusicController(QObject):
         return True
     
     # Bezpiecznie watkowa obsluga wyboru utworu
-    @Slot(str)
+    @Slot(str, result=bool)
     def select_track(self, title: str):
         if QThread.currentThread() != self.thread():
-            QMetaObject.invokeMethod(
+            return QMetaObject.invokeMethod(
                 self,
                 "_select_track",
-                Qt.ConnectionType.QueuedConnection,
+                Qt.ConnectionType.BlockingQueuedConnection,
+                Q_RETURN_ARG(bool),
                 Q_ARG(str, title),
             )
-            return True
 
         return self._select_track(title)
 
     # metoda do zmiany tracka wywolywana przez select_track zeby bylo bezpiecznie watkowo
-    @Slot(str)
+    @Slot(str, result=bool)
     def _select_track(self, title: str):
         index = next((i for i, t in enumerate(self._tracks) if t['title'] == title), -1)
         if index == -1:
@@ -147,20 +147,20 @@ class MusicController(QObject):
         return True
         
     # Bezpiecznie watkowa obsluga pauzy/odtwarzania
-    @Slot()
+    @Slot(result=bool)
     def play_pause(self):
         if QThread.currentThread() != self.thread():
-            QMetaObject.invokeMethod(
+            return QMetaObject.invokeMethod(
                 self,
                 "_play_pause",
-                Qt.ConnectionType.QueuedConnection,
+                Qt.ConnectionType.BlockingQueuedConnection,
+                Q_RETURN_ARG(bool),
             )
-            return True
 
         return self._play_pause()
 
     # metoda do zmiany stanu odtwarzania wywolywana przez play_pause zeby bylo bezpiecznie watkowo
-    @Slot()
+    @Slot(result=bool)
     def _play_pause(self):
         self._isPlaying = not self._isPlaying
         self.isPlayingChanged.emit()
