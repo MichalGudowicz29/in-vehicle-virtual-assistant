@@ -1,10 +1,9 @@
 import threading
 import time
-from pathlib import Path
 
 from PySide6.QtCore import QObject
 
-from evaluation.conversation_runner import ConversationRunner
+from assistant import Assistant
 
 
 class VoiceWorker(QObject):
@@ -12,7 +11,6 @@ class VoiceWorker(QObject):
         super().__init__()
         self.car = car
         self.stop_event = threading.Event()
-        self.events: list[dict] = []
 
     def stop(self):
         self.stop_event.set()
@@ -20,20 +18,16 @@ class VoiceWorker(QObject):
     def run(self):
         from asr import listen
 
-        runner = ConversationRunner(
-            self.car,
-            Path(__file__).resolve().parent / "evaluation" / "runs",
-            speak_response=self._speak_response,
-        )
-        self.events = runner.logger.events
+        assistant = Assistant(self.car)
 
         while not self.stop_event.is_set():
-            completed = runner.run_turn(
-                lambda: listen(self.stop_event),
-                source="microphone",
-            )
-            if not completed:
+            text = listen(self.stop_event)
+            if text is None:
                 break
+
+            response = assistant.handle_text(text)
+            if response:
+                self._speak_response(response)
 
     @staticmethod
     def _speak_response(response: str) -> None:

@@ -49,7 +49,6 @@ dist/
 # Tracing / logs
 logs/
 *.log
-evaluation/runs/*.jsonl
 
 # =========================
 # Voice Agent
