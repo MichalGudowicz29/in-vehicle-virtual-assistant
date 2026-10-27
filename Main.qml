@@ -10,6 +10,11 @@ ApplicationWindow {
     height: 720
     title: "Car Assistant"
 
+    onClosing: function(close) {
+        close.accepted = false
+        shutdownController.request_shutdown()
+    }
+
     Theme {
         id: theme
     }
@@ -33,6 +38,18 @@ ApplicationWindow {
         id: stackView
         anchors.fill: parent
         initialItem: homeScreen
+    }
+
+    Button {
+        objectName: "shutdownButton"
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.margins: 12
+        z: 200
+        text: shutdownController.closing ? "Kończenie…" : "Zakończ"
+        enabled: !shutdownController.closing
+        Accessible.name: text
+        onClicked: shutdownController.request_shutdown()
     }
 
     Connections {

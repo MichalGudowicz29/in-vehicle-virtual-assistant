@@ -20,11 +20,15 @@ def _get_model():
 
 #TODO Przejsc na whisper large
 def listen(stop_event: threading.Event) -> str | None:
+    if stop_event.is_set():
+        return None
+
     import sounddevice as sd
 
     samplerate = int(sd.query_devices(kind="input")["default_samplerate"])
     recognizer = KaldiRecognizer(_get_model(), samplerate)
     audio_queue = queue.Queue()
+    speech_started = False
 
     def audio_callback(indata, frames, time, status):
         audio_queue.put(bytes(indata))
@@ -36,7 +40,7 @@ def listen(stop_event: threading.Event) -> str | None:
         channels=1,
         callback=audio_callback,
     ):
-        while not stop_event.is_set():
+        while not stop_event.is_set() or speech_started:
             try:
                 data = audio_queue.get(timeout=0.1)
             except queue.Empty:
@@ -46,5 +50,9 @@ def listen(stop_event: threading.Event) -> str | None:
                 text = json.loads(recognizer.Result()).get("text", "").strip()
                 if text:
                     return text
+                speech_started = False
+            elif json.loads(recognizer.PartialResult()).get("partial", "").strip():
+                # Dokończ rozpoznaną wypowiedź, nawet jeśli użytkownik kliknął Zakończ.
+                speech_started = True
 
     return None
