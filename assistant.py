@@ -6,11 +6,13 @@ from dotenv import load_dotenv # type: ignore
 
 from langchain.agents import create_agent # type: ignore
 from langchain_core.runnables import RunnableConfig
+from langchain_core.runnables.config import merge_configs
 from langchain.tools import tool # type: ignore
 from langgraph.checkpoint.memory import InMemorySaver
 
 from typing import Literal
-from langchain.messages import HumanMessage
+from langchain_core.messages import AIMessage
+from session_callbacks import SessionCallbacks
 from langchain.agents.middleware.types import InputAgentState
 from graph import build_graph
 
@@ -228,52 +230,35 @@ class Assistant:
         )
     
     
-    # dodac try except 
-    def handle_text(self, text: str):
-        input_data: InputAgentState = {
-            "messages": [
-                {
-                    "role": "user",
-                    "content": text,
-                }
-            ]
-        }
-
+    def handle_text(self, text: str, *, report=None, turn_id=None):
+        config = self.thread_config
+        if report is not None:
+            config = merge_configs(config, {"callbacks": [SessionCallbacks(report, turn_id)]})
+            report.emit("agent_start", turn_id=turn_id)
+        input_data: InputAgentState = {"messages": [{"role": "user", "content": text}]}
         final_text = ""
-
-        for raw_chunk in self.agent.stream(
-            input_data,
-            config=self.thread_config,
-            stream_mode="updates",
-            version="v2",
-        ):
-            if not isinstance(raw_chunk, dict):
-                continue
-
-            data = raw_chunk.get("data")
-            if not isinstance(data, dict):
-                continue
-
-            for node_name, raw_update in data.items():
-                print(f"\n--- node: {node_name} ---")
-
-                if not isinstance(raw_update, dict):
+        try:
+            for raw_chunk in self.agent.stream(
+                input_data, config=config, stream_mode="updates", version="v2",
+            ):
+                if not isinstance(raw_chunk, dict):
                     continue
-
-                messages = raw_update.get("messages", [])
-                if not isinstance(messages, list):
+                data = raw_chunk.get("data")
+                if not isinstance(data, dict):
                     continue
-
-                for message in messages:
-                    content = getattr(message, "content", "")
-                    print(f"type: {type(message).__name__}")
-                    print(f"content: {content}")
-
-                    tool_calls = getattr(message, "tool_calls", None)
-                    if tool_calls:
-                        print(f"tool calls: {tool_calls}")
-
-                    if isinstance(content, str) and content:
-                        final_text = content
-
+                for raw_update in data.values():
+                    if not isinstance(raw_update, dict):
+                        continue
+                    messages = raw_update.get("messages", [])
+                    if not isinstance(messages, list):
+                        continue
+                    for message in messages:
+                        if isinstance(message, AIMessage) and not message.tool_calls:
+                            final_text = message.text
+        except Exception as error:
+            if report is not None:
+                report.emit("agent_end", turn_id=turn_id, success=False, error=str(error))
+            raise
+        if report is not None:
+            report.emit("agent_end", turn_id=turn_id, success=True, text=final_text)
         return final_text

@@ -11,18 +11,22 @@ from PySide6.QtQml import QQmlApplicationEngine
 from CarSystem.car_system import CarSystem
 from voice_worker import VoiceWorker
 from shutdown import ShutdownController
+from session_report import SessionReport
+from session_controls import SessionControls
 
 app = QApplication(sys.argv)
 app.setQuitOnLastWindowClosed(False)
 
+session_report = SessionReport()
 car = CarSystem()
+session_controls = SessionControls(car, session_report)
 
 #utworzenie wątku dla VoiceWorker
 assistant_thread = QThread()
 
 #startowanie VoiceWorker w osobnym wątku
-voice_worker = VoiceWorker(car)
-shutdown_controller = ShutdownController(voice_worker.stop_event)
+voice_worker = VoiceWorker(car, report=session_report)
+shutdown_controller = ShutdownController(voice_worker.stop_event, report=session_report)
 
 #przeniesienie VoiceWorker do osobnego wątku
 voice_worker.moveToThread(assistant_thread)
@@ -41,6 +45,7 @@ signal.signal(signal.SIGINT, lambda *_: shutdown_controller.request_shutdown())
 
 engine = QQmlApplicationEngine()
 engine.rootContext().setContextProperty("car", car)
+engine.rootContext().setContextProperty("sessionControls", session_controls)
 engine.rootContext().setContextProperty("shutdownController", shutdown_controller)
 engine.load("Main.qml")
 print("Loaded QML engine...")

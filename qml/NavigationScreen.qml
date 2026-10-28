@@ -49,7 +49,7 @@ Item {
             text: "START NAVIGATION"
             anchors.horizontalCenter: parent.horizontalCenter
             onClicked: {
-                const accepted = car.navigation.set_destination(addressField.text)
+                const accepted = sessionControls.performTouch("navigation", "set_destination", [addressField.text])
                 statusText.text = accepted
                     ? "Cel ustawiony."
                     : "Wpisz dokładny adres z bazy testowej."

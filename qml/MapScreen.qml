@@ -143,7 +143,7 @@ Item {
                     width: 90
                     text: "DODAJ"
                     onClicked: {
-                        const accepted = car.navigation.add_stop(stopAddressField.text)
+                        const accepted = sessionControls.performTouch("navigation", "add_stop", [stopAddressField.text])
                         stopStatus.text = accepted
                             ? "Przystanek dodany."
                             : "Wpisz dokładny adres z bazy testowej."
@@ -175,7 +175,7 @@ Item {
                         height: 36
                         id: removeButton
                         text: "USUŃ"
-                        onClicked: car.navigation.remove_stop(modelData.address)
+                        onClicked: sessionControls.performTouch("navigation", "remove_stop", [modelData.address])
                     }
                 }
             }

@@ -14,12 +14,21 @@ speech_errors = Queue()
 
 def worker():
     while True:
-        text = speech_queue.get()
+        text, on_event = speech_queue.get()
         try:
+            if on_event is not None:
+                on_event("tts_start")
             wav, _ = tts.synthesize(text, style)
-            sd.play(np.squeeze(wav))
+            if on_event is not None:
+                on_event("tts_end")
+                on_event("audio_start")
+            sd.play(np.squeeze(wav), samplerate=tts.sample_rate)
             sd.wait()
+            if on_event is not None:
+                on_event("audio_end")
         except Exception as error:
+            if on_event is not None:
+                on_event("tts_error", error=str(error))
             speech_errors.put(error)
             print(f"TTS error: {error}")
         finally:
@@ -29,8 +38,8 @@ def worker():
 Thread(target=worker, daemon=True).start()
 
 
-def speak(text):
-    speech_queue.put(str(text))
+def speak(text, on_event=None):
+    speech_queue.put((str(text), on_event))
 
 
 def wait_until_speech_done():

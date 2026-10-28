@@ -47,17 +47,17 @@ Item {
 
             AppButton {
                 text: "PREVIOUS"
-                onClicked: car.music.previous_track()
+                onClicked: sessionControls.performTouch("music", "previous_track", [])
             }
 
             AppButton {
                 text: car.music.isPlaying ? "PAUSE" : "PLAY"
-                onClicked: car.music.play_pause()
+                onClicked: sessionControls.performTouch("music", "play_pause", [])
             }
 
             AppButton {
                 text: "NEXT"
-                onClicked: car.music.next_track()
+                onClicked: sessionControls.performTouch("music", "next_track", [])
             }
         }
 

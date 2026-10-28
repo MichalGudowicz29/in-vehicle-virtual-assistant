@@ -9,9 +9,10 @@ class ShutdownController(QObject):
     closingChanged = Signal()
     finished = Signal()
 
-    def __init__(self, stop_event):
+    def __init__(self, stop_event, report=None):
         super().__init__()
         self.stop_event = stop_event
+        self.report = report
         self._closing = False
         self.started_at = datetime.now().astimezone()
         self.started_timer = perf_counter()
@@ -31,6 +32,15 @@ class ShutdownController(QObject):
 
     @Slot()
     def finish(self):
+        if self.report is not None:
+            try:
+                for path in self.report.save():
+                    print(f"Raport: {path.resolve()}", flush=True)
+            except Exception as error:
+                print(f"Nie udało się zapisać raportu: {error}", flush=True)
+            finally:
+                self.finished.emit()
+            return
         ended_at = datetime.now().astimezone()
         duration = perf_counter() - self.started_timer
         report = (

@@ -11,6 +11,7 @@ ApplicationWindow {
     title: "Car Assistant"
 
     onClosing: function(close) {
+        sessionControls.recordTouch("close_window")
         close.accepted = false
         shutdownController.request_shutdown()
     }
@@ -31,13 +32,16 @@ ApplicationWindow {
 
         contactName: car.contacts.currentContactName
 
-        onHangUpClicked: car.contacts.end_call()
+        onHangUpClicked: sessionControls.performTouch("contacts", "end_call", [])
     }
 
     StackView {
         id: stackView
         anchors.fill: parent
         initialItem: homeScreen
+        onCurrentItemChanged: {
+            if (currentItem) sessionControls.recordScreen(currentItem.objectName)
+        }
     }
 
     Button {
@@ -49,7 +53,10 @@ ApplicationWindow {
         text: shutdownController.closing ? "Kończenie…" : "Zakończ"
         enabled: !shutdownController.closing
         Accessible.name: text
-        onClicked: shutdownController.request_shutdown()
+        onClicked: {
+            sessionControls.recordTouch("shutdown")
+            shutdownController.request_shutdown()
+        }
     }
 
     Connections {
@@ -65,9 +72,19 @@ ApplicationWindow {
         id: homeScreen
 
         HomeScreen {
-            onMusicClicked: stackView.push(musicScreen)
-            onNavigationClicked: stackView.push(navigationScreen)
-            onContactsClicked: stackView.push(contactsScreen)
+            objectName: "home"
+            onMusicClicked: {
+                sessionControls.recordTouch("open_music")
+                stackView.push(musicScreen)
+            }
+            onNavigationClicked: {
+                sessionControls.recordTouch("open_navigation")
+                stackView.push(navigationScreen)
+            }
+            onContactsClicked: {
+                sessionControls.recordTouch("open_contacts")
+                stackView.push(contactsScreen)
+            }
         }
     }
 
@@ -75,7 +92,11 @@ ApplicationWindow {
         id: musicScreen
 
         MusicScreen {
-            onBackClicked: stackView.pop()
+            objectName: "music"
+            onBackClicked: {
+                sessionControls.recordTouch("back")
+                stackView.pop()
+            }
         }
     }
 
@@ -83,7 +104,11 @@ ApplicationWindow {
         id: navigationScreen
 
         NavigationScreen {
-            onBackClicked: stackView.pop()
+            objectName: "navigation"
+            onBackClicked: {
+                sessionControls.recordTouch("back")
+                stackView.pop()
+            }
         }
     }
 
@@ -91,7 +116,11 @@ ApplicationWindow {
         id: mapScreen
 
         MapScreen {
-            onBackClicked: stackView.pop()
+            objectName: "map"
+            onBackClicked: {
+                sessionControls.recordTouch("back")
+                stackView.pop()
+            }
         }
     }
 
@@ -99,7 +128,11 @@ ApplicationWindow {
         id: contactsScreen
 
         ContactsScreen {
-            onBackClicked: stackView.pop()
+            objectName: "contacts"
+            onBackClicked: {
+                sessionControls.recordTouch("back")
+                stackView.pop()
+            }
         }
     }
 

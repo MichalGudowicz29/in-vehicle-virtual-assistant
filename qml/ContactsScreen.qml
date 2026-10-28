@@ -68,10 +68,7 @@ Item {
                             visible: modelData.mobile !== undefined
                             text: "MOBILE"
                             onClicked: {
-                                car.contacts.call_contact(
-                                    modelData.name,
-                                    "mobile"
-                                )
+                                sessionControls.performTouch("contacts", "call_contact", [modelData.name, "mobile"])
                             }
                         }
 
@@ -80,10 +77,7 @@ Item {
                             visible: modelData.work !== undefined
                             text: "WORK"
                             onClicked: {
-                                car.contacts.call_contact(
-                                    modelData.name,
-                                    "work"
-                                )
+                                sessionControls.performTouch("contacts", "call_contact", [modelData.name, "work"])
                             }
                         }
                     }
