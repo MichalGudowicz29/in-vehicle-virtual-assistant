@@ -27,8 +27,8 @@ class NavigationController(QObject):
                 "lat": 53.4380,
                 "lon": 14.5300,
             },
-            "ul. końcowa 5, szczecin": {
-                "address": "ul. Końcowa 5, Szczecin",
+            "ul. żołnierska 47, szczecin": {
+                "address": "ul. Żołnierska 47, Szczecin",
                 "lat": 53.4285,
                 "lon": 14.5528,
             },

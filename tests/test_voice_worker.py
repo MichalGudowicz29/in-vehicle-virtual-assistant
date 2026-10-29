@@ -140,3 +140,64 @@ def test_post_response_pause_is_excluded_from_turn_duration(monkeypatch):
     worker.run()
     assert report.snapshot()['metrics']['Cała tura']['mean_s'] == 3
     assert report.snapshot()['duration_s'] > 3
+
+
+def test_file_input_runs_exactly_one_turn_without_opening_microphone(monkeypatch, tmp_path):
+    from session_report import SessionReport
+    path = tmp_path / 'speech.mp3'
+    report = SessionReport(audio_file=path)
+    calls = []
+    class FakeAssistant:
+        def __init__(self, car):
+            pass
+        def handle_text(self, text, *, report, turn_id):
+            calls.append(('agent', text))
+            report.emit('agent_start', turn_id=turn_id)
+            report.emit('agent_end', turn_id=turn_id, text='Gotowe')
+            return 'Gotowe'
+    def read_file(audio_file, stop, on_event):
+        assert not calls, 'File must not be read a second time'
+        assert audio_file == path
+        calls.append(('file', audio_file))
+        on_event('speech_start')
+        on_event('speech_end')
+        on_event('transcription_ready', text='zadzwoń do Roberta')
+        return 'zadzwoń do Roberta'
+    def unexpected_microphone(*args, **kwargs):
+        raise AssertionError('File mode must never open the microphone')
+    monkeypatch.setattr('asr.listen', unexpected_microphone)
+    monkeypatch.setattr('asr.listen_file', read_file)
+    monkeypatch.setattr('voice_worker.Assistant', FakeAssistant)
+    worker = VoiceWorker(None, report=report, audio_file=path)
+    def speak(text, on_event):
+        calls.append(('tts', text))
+        on_event('audio_start')
+        on_event('audio_end')
+    monkeypatch.setattr(worker, '_speak_response', speak)
+    worker.finished.connect(lambda: calls.append(('finished', None)))
+    worker.run()
+    assert [kind for kind, _ in calls] == ['file', 'agent', 'tts', 'finished']
+    data = report.snapshot()
+    assert data['counts'] == {'completed': 1, 'failed': 0, 'interrupted': 0}
+    assert [e['type'] for e in data['events']][-2:] == ['audio_end', 'turn_end']
+
+
+def test_invalid_audio_file_is_a_failed_turn_and_worker_still_finishes(monkeypatch, tmp_path):
+    import pytest
+    from session_report import SessionReport
+    class FakeAssistant:
+        def __init__(self, car):
+            pass
+        def handle_text(self, text, **kwargs):
+            raise AssertionError('Invalid audio must not reach the agent')
+    monkeypatch.setattr('voice_worker.Assistant', FakeAssistant)
+    path = tmp_path / 'broken.mp3'
+    path.write_text('not audio')
+    report = SessionReport(audio_file=path)
+    worker = VoiceWorker(None, report=report, audio_file=path)
+    finished = []
+    worker.finished.connect(lambda: finished.append(True))
+    with pytest.raises((RuntimeError, OSError)):
+        worker.run()
+    assert finished == [True]
+    assert report.snapshot()['counts']['failed'] == 1

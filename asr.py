@@ -2,7 +2,7 @@ import json
 import queue
 import threading
 from pathlib import Path
-from time import perf_counter
+from time import perf_counter, sleep
 
 from vosk import KaldiRecognizer, Model
 
@@ -66,14 +66,9 @@ def listen(stop_event: threading.Event, on_event=None) -> str | None:
                 text = result.get("text", "").strip()
                 if text:
                     ready_at = perf_counter()
-                    if on_event is not None:
-                        words = result.get("result", [])
-                        if words and first_audio_at is not None and timing_valid:
-                            on_event("speech_start", at=first_audio_at + words[0]["start"])
-                            on_event("speech_end", at=first_audio_at + words[-1]["end"])
-                        else:
-                            on_event("asr_warning", warning="Brak wiarygodnych granic mowy Vosk.")
-                        on_event("transcription_ready", at=ready_at, text=text)
+                    _report_transcription(text, result.get("result", []),
+                                          first_audio_at if timing_valid else None,
+                                          ready_at, on_event)
                     return text
                 speech_started = False
             elif json.loads(recognizer.PartialResult()).get("partial", "").strip():
@@ -83,3 +78,61 @@ def listen(stop_event: threading.Event, on_event=None) -> str | None:
                 speech_started = True
 
     return None
+
+
+def listen_file(path: Path, stop_event: threading.Event, on_event=None) -> str | None:
+    if stop_event.is_set():
+        return None
+
+    import soundfile as sf
+
+    with sf.SoundFile(path) as source:
+        if source.frames == 0:
+            raise ValueError(f"Pusty plik audio: {path}")
+        recognizer = KaldiRecognizer(_get_model(), source.samplerate)
+        if on_event is not None:
+            recognizer.SetWords(True)
+        started_at = perf_counter()
+        frames_sent = 0
+        speech_started = False
+        result = {}
+        for block in source.blocks(blocksize=8000, dtype="int16", always_2d=True):
+            # Mean uses floating point, so stereo addition cannot overflow int16.
+            pcm = block.mean(axis=1).astype("<i2").tobytes()
+            frames_sent += len(block)
+            deadline = started_at + frames_sent / source.samplerate
+            if stop_event.wait(max(0.0, deadline - perf_counter())):
+                if not speech_started:
+                    return None
+                # Finish the started turn at 1x even after a shutdown request.
+                sleep(max(0.0, deadline - perf_counter()))
+            if recognizer.AcceptWaveform(pcm):
+                result = json.loads(recognizer.Result())
+                if result.get("text", "").strip():
+                    break
+                speech_started = False
+            elif json.loads(recognizer.PartialResult()).get("partial", "").strip():
+                if not speech_started and on_event is not None:
+                    on_event("speech_detected")
+                speech_started = True
+
+        # EOF, unlike the microphone, may arrive without an endpoint's trailing silence.
+        if not result.get("text", "").strip():
+            result = json.loads(recognizer.FinalResult())
+        ready_at = perf_counter()
+        text = result.get("text", "").strip()
+        if not text:
+            raise ValueError(f"Nie rozpoznano mowy w pliku: {path}")
+        _report_transcription(text, result.get("result", []), started_at, ready_at, on_event)
+        return text
+
+
+def _report_transcription(text, words, audio_started_at, ready_at, on_event):
+    if on_event is None:
+        return
+    if words and audio_started_at is not None:
+        on_event("speech_start", at=audio_started_at + words[0]["start"])
+        on_event("speech_end", at=audio_started_at + words[-1]["end"])
+    else:
+        on_event("asr_warning", warning="Brak wiarygodnych granic mowy Vosk.")
+    on_event("transcription_ready", at=ready_at, text=text)

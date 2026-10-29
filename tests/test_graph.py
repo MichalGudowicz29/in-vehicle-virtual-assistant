@@ -71,7 +71,7 @@ def test_navigation_node_sets_destination():
     result = navigation_node(
         {
             "action": "set_destination",
-            "payload": {"address": "ul. Końcowa 5, Szczecin"},
+            "payload": {"address": "ul. Żołnierska 47, Szczecin"},
         },
         car,
     )
@@ -79,9 +79,9 @@ def test_navigation_node_sets_destination():
     assert result["result"] == {
         "success": True,
         "action": "set_destination",
-        "destination": "ul. Końcowa 5, Szczecin",
+        "destination": "ul. Żołnierska 47, Szczecin",
     }
-    assert car.navigation.destination == "ul. Końcowa 5, Szczecin" # type: ignore
+    assert car.navigation.destination == "ul. Żołnierska 47, Szczecin" # type: ignore
 
 
 def test_navigation_node_rejects_empty_destination():

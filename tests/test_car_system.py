@@ -12,15 +12,15 @@ class CarSystemTests(unittest.TestCase):
         car = CarSystem()
         navigation = cast(NavigationController, car.navigation)
 
-        navigation.set_destination("ul. Końcowa 5, Szczecin")
+        navigation.set_destination("ul. Żołnierska 47, Szczecin")
 
-        self.assertEqual(navigation.destination, "ul. Końcowa 5, Szczecin")
+        self.assertEqual(navigation.destination, "ul. Żołnierska 47, Szczecin")
 
     def test_navigation_builds_route_points_from_hardcoded_places(self):
         car = CarSystem()
         navigation = cast(NavigationController, car.navigation)
 
-        navigation.set_destination("ul. Końcowa 5, Szczecin")
+        navigation.set_destination("ul. Żołnierska 47, Szczecin")
         navigation.add_stop("ul. Stacyjna 10, Szczecin")
 
         self.assertEqual(
@@ -28,7 +28,7 @@ class CarSystemTests(unittest.TestCase):
             [
                 "ul. Startowa 1, Szczecin",
                 "ul. Stacyjna 10, Szczecin",
-                "ul. Końcowa 5, Szczecin",
+                "ul. Żołnierska 47, Szczecin",
             ],
         )
 
@@ -44,13 +44,13 @@ class CarSystemTests(unittest.TestCase):
         car = CarSystem()
         navigation = cast(NavigationController, car.navigation)
 
-        navigation.set_destination("ul. Końcowa 5, Szczecin")
+        navigation.set_destination("ul. Żołnierska 47, Szczecin")
         navigation.add_stop("ul. Stacyjna 10, Szczecin")
 
         self.assertTrue(navigation.remove_stop("ul. Stacyjna 10, Szczecin"))
         self.assertEqual(
             [point["address"] for point in navigation.routePoints],
-            ["ul. Startowa 1, Szczecin", "ul. Końcowa 5, Szczecin"],
+            ["ul. Startowa 1, Szczecin", "ul. Żołnierska 47, Szczecin"],
         )
 
         navigation.clear_route()

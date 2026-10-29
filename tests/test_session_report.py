@@ -86,3 +86,19 @@ def test_warning_without_speech_is_session_history_not_a_voice_turn():
     assert data['turns'] == []
     assert data['events'][0]['turn_id'] is None
     assert data['events'][0]['warning'] == 'input overflow'
+
+
+def test_file_source_is_in_header_and_json_without_changing_metric_definitions(tmp_path):
+    path = tmp_path / 'Telefon.mp3'
+    report = SessionReport(audio_file=path)
+    turn = report.begin_turn()
+    report.emit('speech_start', turn_id=turn, at=report.started_timer)
+    report.emit('speech_end', turn_id=turn, at=report.started_timer + 2)
+    report.emit('transcription_ready', turn_id=turn, at=report.started_timer + 2.5, text='Zadzwoń')
+    text_path, json_path = report.save(tmp_path)
+    data = json.loads(json_path.read_text())
+    assert data['input_source'] == {'type': 'audiofile', 'path': str(path)}
+    assert 'Wejście: audiofile' in text_path.read_text().split('TURA 1')[0]
+    assert str(path) in text_path.read_text()
+    assert data['metrics']['Koniec mowy → transkrypcja']['mean_s'] == .5
+    assert SessionReport().snapshot()['input_source'] == {'type': 'microphone'}

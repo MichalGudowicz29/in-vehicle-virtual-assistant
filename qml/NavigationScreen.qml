@@ -32,7 +32,7 @@ Item {
         TextField {
             id: addressField
             width: parent.width
-            placeholderText: "ul. Końcowa 5, Szczecin"
+            placeholderText: "ul. Żołnierska 47, Szczecin"
             color: theme.text
             placeholderTextColor: theme.textMuted
             padding: 14

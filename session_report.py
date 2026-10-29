@@ -43,9 +43,10 @@ STATUSES = {'completed': 'zakończona', 'failed': 'błędna', 'interrupted': 'pr
 
 
 class SessionReport:
-    def __init__(self):
+    def __init__(self, audio_file: Path | None = None):
         self.started_at = datetime.now().astimezone()
         self.started_timer = perf_counter()
+        self.audio_file = audio_file
         self.session_id = f'session_{self.started_at:%Y%m%d_%H%M%S}_{uuid4().hex[:8]}'
         self.events = []
         self.turns = []
@@ -135,6 +136,8 @@ class SessionReport:
             'ended_at': ended_at.isoformat() if ended_at else None,
             'duration_s': duration,
             'models': {'asr': 'Vosk', 'llm': 'gpt-4o-mini', 'tts': 'Supertonic'},
+            'input_source': ({'type': 'audiofile', 'path': str(self.audio_file)}
+                             if self.audio_file is not None else {'type': 'microphone'}),
             'turns': turns, 'events': events,
             'counts': {status: counts[status] for status in STATUSES},
             'metrics': {name: {'n': len(values), 'mean_s': mean(values),
@@ -172,7 +175,12 @@ class SessionReport:
 
 
 def render_report(data):
+    source = data['input_source']
+    source_label = source['type']
+    if 'path' in source:
+        source_label += f" | Plik: {source['path']} | Tempo: 1x"
     lines = [f"SESJA: {data['session_id']}", 'ASR: Vosk | LLM: gpt-4o-mini | TTS: Supertonic',
+             f"Wejście: {source_label}",
              f"Rozpoczęcie: {data['started_at']}", f"Zakończenie: {data['ended_at']}",
              'Granice mowy: estymacja Vosk, według rozpoznanych słów.',
              'Start audio: wywołanie odtwarzania; bez pomiaru akustycznego.',

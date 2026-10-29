@@ -1,6 +1,8 @@
 import os
 import sys
 import signal
+import argparse
+from pathlib import Path
 
 os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
 
@@ -14,10 +16,18 @@ from shutdown import ShutdownController
 from session_report import SessionReport
 from session_controls import SessionControls
 
-app = QApplication(sys.argv)
+parser = argparse.ArgumentParser(description="Asystent samochodowy: mikrofon lub jedna tura z pliku audio.")
+parser.add_argument("--audio-file", type=Path, help="Plik audio podawany do ASR w naturalnym tempie.")
+args, qt_args = parser.parse_known_args()
+if args.audio_file is not None:
+    args.audio_file = args.audio_file.expanduser().resolve()
+    if not args.audio_file.is_file():
+        parser.error(f"Nie znaleziono pliku audio: {args.audio_file}")
+
+app = QApplication([sys.argv[0], *qt_args])
 app.setQuitOnLastWindowClosed(False)
 
-session_report = SessionReport()
+session_report = SessionReport(audio_file=args.audio_file)
 car = CarSystem()
 session_controls = SessionControls(car, session_report)
 
@@ -25,7 +35,7 @@ session_controls = SessionControls(car, session_report)
 assistant_thread = QThread()
 
 #startowanie VoiceWorker w osobnym wątku
-voice_worker = VoiceWorker(car, report=session_report)
+voice_worker = VoiceWorker(car, report=session_report, audio_file=args.audio_file)
 shutdown_controller = ShutdownController(voice_worker.stop_event, report=session_report)
 
 #przeniesienie VoiceWorker do osobnego wątku

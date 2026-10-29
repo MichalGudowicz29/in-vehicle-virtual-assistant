@@ -56,3 +56,31 @@ Weryfikacja bez mikrofonu i płatnego API:
 ```bash
 uv run pytest
 ```
+
+# Jedna tura z pliku audio
+
+```bash
+uv run python main.py --audio-file assets/voice/Telefon.mp3
+```
+
+Plik zastępuje mikrofon. Aplikacja podaje jego audio do Vosk w naturalnym
+tempie 1x, wykonuje jedną turę agenta i TTS, a po zakończeniu odpowiedzi
+zapisuje raport TXT/JSON i zamyka się automatycznie. Wejście nie jest dodatkowo
+odtwarzane przez głośniki. Bez `--audio-file` nadal działa ciągły mikrofon.
+
+MP3 i WAV są dekodowane przez już zainstalowany `soundfile`. Do Vosk trafia
+PCM 16-bit mono; stereo jest uśredniane do mono. Rozpoznawacz dostaje rzeczywistą
+częstotliwość pliku — dostarczone MP3 44,1 kHz nie wymagają osobnej konwersji Hz.
+Tak jak mikrofon, pierwsza rozpoznana wypowiedź kończy się przy niepustym
+wyniku endpointu Vosk; dalsza cisza lub następna wypowiedź w pliku nie trafiają
+do tej tury. Jeśli najpierw nastąpi EOF, `FinalResult()` opróżnia rozpoznawanie
+również w nagraniu bez końcowej ciszy. Czasy w raporcie korzystają z tego samego zegara
+co mikrofon i pozostałe etapy; nagłówek dodaje `Wejście: audiofile`, ścieżkę
+pliku i tempo 1x. JSON udostępnia te dane w `input_source`.
+
+Jeśli agent poprosi o doprecyzowanie, jego pytanie kończy tę pojedynczą turę;
+tryb plikowy nie otwiera potem mikrofonu. Pusty lub uszkodzony plik oraz brak
+rozpoznanej mowy kończą próbę błędem, bez przekazywania pustego tekstu do LLM.
+Przy zamykaniu przed wykryciem mowy wejście zostaje przerwane; po wykryciu
+mowy aplikacja kończy rozpoczętą wypowiedź i odpowiedź, tak jak rozpoczętą turę
+mikrofonową. Ten tryb służy pojedynczym krótkim wypowiedziom.
