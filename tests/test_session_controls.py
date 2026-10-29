@@ -24,11 +24,13 @@ def test_touch_cannot_invoke_arbitrary_attributes():
     assert report.snapshot()['events'][-1]['success'] is False
 
 
-def test_main_qml_loads_and_touch_arguments_cross_qt_boundary(tmp_path):
+def test_main_qml_loads_and_touch_arguments_cross_qt_boundary(tmp_path, music_file):
     import os
     import subprocess
     import sys
     script = '''
+import sys
+import pygame
 from PySide6.QtCore import QUrl
 from PySide6.QtWidgets import QApplication
 from PySide6.QtQml import QQmlApplicationEngine, QQmlComponent
@@ -38,6 +40,8 @@ from shutdown import ShutdownController
 from session_report import SessionReport
 from session_controls import SessionControls
 
+load = pygame.mixer.music.load
+pygame.mixer.music.load = lambda _path: load(sys.argv[1])
 app = QApplication([])
 car = CarSystem()
 report = SessionReport()
@@ -58,6 +62,6 @@ assert any(e['type'] == 'touch_end' and e['success'] for e in report.events)
 assert any(e['type'] == 'screen_change' and e['screen'] == 'home' for e in report.events)
 print('QML and QVariantList: OK')
 '''
-    result = subprocess.run([sys.executable, '-c', script], env={**os.environ, 'QT_QPA_PLATFORM': 'offscreen', 'SDL_AUDIODRIVER': 'dummy'}, text=True, capture_output=True, timeout=30)
+    result = subprocess.run([sys.executable, '-c', script, str(music_file)], env={**os.environ, 'QT_QPA_PLATFORM': 'offscreen', 'SDL_AUDIODRIVER': 'dummy'}, text=True, capture_output=True, timeout=30)
     assert result.returncode == 0, result.stdout + result.stderr
     assert 'QML and QVariantList: OK' in result.stdout

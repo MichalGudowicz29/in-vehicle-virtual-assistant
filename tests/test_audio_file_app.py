@@ -8,7 +8,7 @@ import sys
 import wave
 
 
-def test_cli_file_turn_finishes_after_response_and_writes_report(tmp_path):
+def test_cli_file_turn_finishes_after_response_and_writes_report(tmp_path, music_file):
     path = tmp_path / 'speech.wav'
     with wave.open(str(path), 'wb') as audio:
         audio.setnchannels(1)
@@ -21,11 +21,14 @@ import json
 from pathlib import Path
 import runpy
 import sys
+import pygame
 import asr
 import voice_worker
 from session_report import SessionReport
 
-wav_path, output = sys.argv[1:]
+wav_path, output, music_file = sys.argv[1:]
+load = pygame.mixer.music.load
+pygame.mixer.music.load = lambda _path: load(music_file)
 class Recognizer:
     def SetWords(self, value):
         pass
@@ -61,7 +64,7 @@ SessionReport.save = lambda self: original_save(self, Path(output))
 sys.argv = ['main.py', '--audio-file', wav_path]
 runpy.run_path('main.py', run_name='__main__')
 '''
-    result = subprocess.run([sys.executable, '-c', script, str(path), str(output)],
+    result = subprocess.run([sys.executable, '-c', script, str(path), str(output), str(music_file)],
                             env={**os.environ, 'QT_QPA_PLATFORM': 'offscreen', 'SDL_AUDIODRIVER': 'dummy'},
                             text=True, capture_output=True, timeout=30)
     assert result.returncode == 0, result.stdout + result.stderr

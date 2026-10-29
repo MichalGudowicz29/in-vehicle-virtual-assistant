@@ -57,6 +57,12 @@ Weryfikacja bez mikrofonu i płatnego API:
 uv run pytest
 ```
 
+Testy korzystają z wirtualnego audio SDL, Qt bez ekranu i programowego
+renderowania. Tymczasowy WAV zastępuje prywatne pliki `music/*.mp3`, również
+w testach uruchamiających aplikację w osobnym procesie. Nie trzeba udostępniać
+karty dźwiękowej ani własnej muzyki. Workflow Ubuntu instaluje systemowe
+biblioteki PortAudio i Qt, których samo `uv sync` nie dostarcza.
+
 # Jedna tura z pliku audio
 
 ```bash
