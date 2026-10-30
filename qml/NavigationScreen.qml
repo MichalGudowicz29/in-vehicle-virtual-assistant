@@ -29,7 +29,7 @@ Item {
             horizontalAlignment: Text.AlignHCenter
         }
 
-        TextField {
+        AddressField {
             id: addressField
             width: parent.width
             placeholderText: "ul. Żołnierska 47, Szczecin"
@@ -49,10 +49,11 @@ Item {
             text: "START NAVIGATION"
             anchors.horizontalCenter: parent.horizontalCenter
             onClicked: {
+                addressField.dismissKeyboard()
                 const accepted = sessionControls.performTouch("navigation", "set_destination", [addressField.text])
                 statusText.text = accepted
                     ? "Cel ustawiony."
-                    : "Wpisz dokładny adres z bazy testowej."
+                    : "Brak jednoznacznego adresu. Wybierz podpowiedź."
             }
         }
 

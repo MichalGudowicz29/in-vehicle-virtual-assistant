@@ -1,5 +1,7 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.VirtualKeyboard
+import QtQuick.VirtualKeyboard.Settings
 import "qml"
 
 ApplicationWindow {
@@ -37,11 +39,26 @@ ApplicationWindow {
 
     StackView {
         id: stackView
-        anchors.fill: parent
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: screenKeyboard.top
         initialItem: homeScreen
         onCurrentItemChanged: {
+            Qt.inputMethod.hide()
             if (currentItem) sessionControls.recordScreen(currentItem.objectName)
         }
+    }
+
+    InputPanel {
+        id: screenKeyboard
+        objectName: "screenKeyboard"
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: Math.min(parent.width, 900)
+        y: active ? parent.height - height : parent.height
+        visible: active
+        z: 300
+        Component.onCompleted: VirtualKeyboardSettings.locale = "pl_PL"
     }
 
     Button {

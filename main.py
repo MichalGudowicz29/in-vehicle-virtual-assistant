@@ -5,6 +5,8 @@ import argparse
 from pathlib import Path
 
 os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
+os.environ["QT_IM_MODULE"] = "qtvirtualkeyboard"
+os.environ["QT_VIRTUALKEYBOARD_DESKTOP_DISABLE"] = "1"
 
 from PySide6.QtCore import QThread, QTimer, Qt
 from PySide6.QtWidgets import QApplication

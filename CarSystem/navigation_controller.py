@@ -1,4 +1,14 @@
+import re
+import unicodedata
+
 from PySide6.QtCore import Q_ARG, Q_RETURN_ARG, QMetaObject, QObject, Property, QThread, Qt, Signal, Slot
+
+
+def _address_tokens(address: str) -> list[str]:
+    text = unicodedata.normalize("NFKD", address.casefold().replace("ł", "l"))
+    text = text.encode("ascii", "ignore").decode("ascii")
+    tokens = re.findall(r"[a-z]+|[0-9]+[a-z]*", text)
+    return tokens[1:] if tokens and tokens[0] in {"ul", "ulica"} else tokens
 
 
 class NavigationController(QObject):
@@ -89,11 +99,35 @@ class NavigationController(QObject):
         print(f"Set destination to {address}")
         return True
 
+    @Slot(str, result="QVariantList")
+    def search_places(self, query: str):
+        terms = _address_tokens(query)
+        if not terms:
+            return []
+        matches = []
+        for place in self._places.values():
+            words = _address_tokens(place["address"])
+            if all(any(term == word if term[0].isdigit() else term in word
+                       for word in words) for term in terms):
+                matches.append(place.copy())
+
+        def rank(place):
+            words = _address_tokens(place["address"])
+            return (words != terms, -sum(term in words for term in terms),
+                    not " ".join(words).startswith(" ".join(terms)), place["address"])
+
+        return sorted(matches, key=rank)
+
     @Slot(str, result="QVariant")
     def get_coordinates(self, address: str):
-        place = self._places.get(address.strip().lower())
-        if place is None:
+        matches = self.search_places(address)
+        exact = [place for place in matches
+                 if _address_tokens(place["address"]) == _address_tokens(address)]
+        if exact:
+            matches = exact
+        if len(matches) != 1:
             return None
+        place = matches[0]
         return {
             "latitude": place["lat"],
             "longitude": place["lon"],
@@ -132,8 +166,11 @@ class NavigationController(QObject):
 
     @Slot(str, result=bool)
     def remove_stop(self, address: str):
+        place = self.get_coordinates(address)
+        if place is None:
+            return False
         for index, stop in enumerate(self._stops):
-            if stop["address"].lower() == address.strip().lower():
+            if stop["address"] == place["address"]:
                 self._stops.pop(index)
                 self.routePointsChanged.emit()
                 self.stopsChanged.emit()

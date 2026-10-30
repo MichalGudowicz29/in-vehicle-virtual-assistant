@@ -54,6 +54,22 @@ kafelków ani tras z internetu; linia nie odwzorowuje rzeczywistych dróg.
 
 Konfiguracja ChatOllama: [oficjalna dokumentacja](https://docs.langchain.com/oss/python/integrations/chat/ollama).
 
+# Klawiatura ekranowa
+
+Dotknięcie pola adresu lub przystanku otwiera lokalną klawiaturę ekranową.
+Enter chowa klawiaturę; START NAVIGATION i DODAJ chowają ją oraz wykonują
+akcję. Widok nad klawiaturą zmniejsza się, żeby pole pozostawało widoczne.
+
+# Wyszukiwanie adresów
+
+Cel i przystanek można wpisywać fragmentami, bez `ul.`, polskich znaków,
+wielkich liter i przecinków, np. `zolnierska47`. Podpowiedzi pojawiają się
+nad klawiaturą. Dotknięcie wyniku wypełnia pole pełnym adresem; dopiero
+START NAVIGATION lub DODAJ wykonuje akcję. Numery domów są porównywane
+w całości (`47` nie pasuje do `147`). Niejednoznaczny adres wymaga wyboru
+lub doprecyzowania. Te same reguły wyszukiwania obowiązują narzędzia głosowe.
+Wyszukiwanie korzysta z lokalnej bazy; nie poprawia literówek.
+
 # Raport sesji
 
 Po kliknięciu **Zakończ**, zamknięciu okna albo Ctrl+C aplikacja kończy

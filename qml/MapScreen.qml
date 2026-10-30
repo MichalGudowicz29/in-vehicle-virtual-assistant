@@ -170,7 +170,7 @@ Item {
                 width: parent.width
                 spacing: 8
 
-                TextField {
+                AddressField {
                     id: stopAddressField
                     width: parent.width - addStopButton.width - 8
                     placeholderText: "ul. Stacyjna 10, Szczecin"
@@ -191,10 +191,11 @@ Item {
                     width: 90
                     text: "DODAJ"
                     onClicked: {
+                        stopAddressField.dismissKeyboard()
                         const accepted = sessionControls.performTouch("navigation", "add_stop", [stopAddressField.text])
                         stopStatus.text = accepted
                             ? "Przystanek dodany."
-                            : "Wpisz dokładny adres z bazy testowej."
+                            : "Brak jednoznacznego adresu. Wybierz podpowiedź."
                         if (accepted) {
                             stopAddressField.clear()
                         }
