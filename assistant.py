@@ -1,8 +1,4 @@
-import os
-from operator import index
-
-from distro import name
-from dotenv import load_dotenv # type: ignore
+import config
 
 from langchain.agents import create_agent # type: ignore
 from langchain_core.runnables import RunnableConfig
@@ -12,12 +8,10 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from typing import Literal
 from langchain_core.messages import AIMessage
+from langchain_ollama import ChatOllama
 from session_callbacks import SessionCallbacks
 from langchain.agents.middleware.types import InputAgentState
 from graph import build_graph
-
-
-load_dotenv()
 
 
 SYSTEM_PROMPT_SHORT = """
@@ -223,7 +217,12 @@ class Assistant:
     # dodac try except 
     def initialize_agent(self):
         return create_agent(
-            model="openai:gpt-4o-mini",
+            model=ChatOllama(
+                model=config.OLLAMA_MODEL,
+                base_url="http://127.0.0.1:11434",
+                temperature=0,
+                client_kwargs={"trust_env": False},
+            ),
             system_prompt=SYSTEM_PROMPT_SHORT,
             tools=self.build_tools(),
             checkpointer=self.checkpointer,

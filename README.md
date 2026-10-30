@@ -1,17 +1,58 @@
-UV needed to run
-https://docs.astral.sh/uv/getting-started/installation/
+# Uruchomienie z lokalnym LLM
 
-# How to run
-1. Add '.env' file with OPENAI_API_KEY
-2. Give access to microphone and speakers
+Projekt używa Vosk, LangChain/LangGraph, lokalnej Ollamy i Supertonic.
 
-3. Run with 'uv'
-```bash
-uv sync
-uv run python main.py
-```
+1. Zainstaluj [uv](https://docs.astral.sh/uv/getting-started/installation/)
+   oraz [Ollamę](https://ollama.com/download). Zainstaluj zależności projektu:
 
-The assistant listens continuously and speaks each response.
+   ```bash
+   uv sync --locked
+   ```
+
+2. Przygotuj lokalny model obsługujący **tool calling**. Przykład z dokumentacji
+   ChatOllama (wybór modelu i jego wymagania sprzętowe należą do użytkownika):
+
+   ```bash
+   ollama pull gpt-oss:20b
+   ```
+
+   Dodaj do istniejącego `.env` jedną zmienną, zgodną z tagiem pobranego modelu:
+
+   ```env
+   OLLAMA_MODEL=gpt-oss:20b
+   ```
+
+   Wzór: [.env.example](.env.example). Domyślna nazwa jest taka sama.
+   Zmiana modelu wymaga ponownego uruchomienia aplikacji. Można też podać ją
+   wyłącznie dla jednego uruchomienia:
+
+   ```bash
+   OLLAMA_MODEL=gpt-oss:20b uv run python main.py
+   ```
+
+3. TTS używa `auto_download=True`: brakujący model zostanie pobrany przy
+   pierwszym uruchomieniu, które wymaga wtedy internetu. Po pobraniu model
+   jest używany lokalnie z cache. Model Vosk znajduje się w `models/`.
+
+4. Uruchom lokalny serwer Ollama (`ollama serve`, jeśli aplikacja Ollama jeszcze
+   go nie uruchomiła), a następnie asystenta. Mikrofon i głośniki wymagają zgód
+   systemowych:
+
+   ```bash
+   uv run python main.py
+   ```
+
+LLM łączy się z `http://127.0.0.1:11434`, bez proxy środowiskowego i fallbacku
+do chmurowego API. Model nie jest automatycznie pobierany ani instalowany.
+Wybieraj modele lokalne, nie warianty `-cloud`. Aplikacja wyłącza tracing
+LangSmith/LangChain przez `LANGSMITH_TRACING=false` i `LANGCHAIN_TRACING_V2=false`.
+
+ASR–LLM–TTS działa lokalnie po przygotowaniu modeli. Mapa jest lokalnym
+schematem: pokazuje adresy z bazy i linię START → przystanki → cel. Zmiany
+głosem i dotykiem aktualizują punkty oraz kolejność trasy. Widok nie pobiera
+kafelków ani tras z internetu; linia nie odwzorowuje rzeczywistych dróg.
+
+Konfiguracja ChatOllama: [oficjalna dokumentacja](https://docs.langchain.com/oss/python/integrations/chat/ollama).
 
 # Raport sesji
 
@@ -35,7 +76,8 @@ granic lub mikrofon zgłasza utratę danych, raport pokazuje brak pomiaru.
 Start audio oznacza wywołanie odtwarzania, nie pomiar dźwięku przy głośniku.
 Pauza 0,7 s po odpowiedzi nie wchodzi do czasu tury.
 
-Tokeny pochodzą z metadanych dostawcy modelu. Raport podaje pokrycie pomiaru;
+Nazwa modelu w TXT/JSON pochodzi z tej samej konfiguracji co agent. Tokeny
+pochodzą z metadanych modelu (dla Ollamy: liczniki prompt/eval, jeśli zwrócone). Raport podaje pokrycie pomiaru;
 brak zużycia nie jest traktowany jako zero. Statystyki wykorzystują wyłącznie
 kompletne pary znaczników, również dla żądań zakończonych błędem. Przy
 równoległych narzędziach suma ich czasów nie jest czasem agenta.

@@ -1,0 +1,124 @@
+import importlib
+import json
+
+from CarSystem.car_system import CarSystem
+from assistant import Assistant
+from session_report import SessionReport
+
+
+def test_configurable_model_is_used_by_agent_and_report(monkeypatch, tmp_path):
+    import config
+    from langchain_ollama import ChatOllama
+    monkeypatch.setattr(config, 'OLLAMA_MODEL', 'test-local-model:8b')
+    monkeypatch.delenv('OPENAI_API_KEY', raising=False)
+    captured = {}
+    def create_agent(**kwargs):
+        captured.update(kwargs)
+        return object()
+    monkeypatch.setattr('assistant.create_agent', create_agent)
+    assistant = Assistant(CarSystem())
+    model = captured['model']
+    assert isinstance(model, ChatOllama)
+    assert model.model == 'test-local-model:8b'
+    assert model.base_url == 'http://127.0.0.1:11434'
+    assert model.temperature == 0
+    assert captured['checkpointer'] is assistant.checkpointer
+    assert 'call_contact' in [tool.name for tool in captured['tools']]
+    report = SessionReport()
+    txt, data = report.save(tmp_path)
+    assert json.loads(data.read_text())['models']['llm'] == model.model
+    assert 'LLM: test-local-model:8b' in txt.read_text()
+    assert 'gpt-4o-mini' not in txt.read_text()
+
+
+def test_model_environment_variable_is_read_without_openai_key(monkeypatch):
+    import config
+    try:
+        with monkeypatch.context() as environment:
+            environment.setenv('OLLAMA_MODEL', 'another-local:4b')
+            importlib.reload(config)
+            assert config.OLLAMA_MODEL == 'another-local:4b'
+    finally:
+        importlib.reload(config)
+
+
+def test_chatollama_executes_tools_and_reports_server_token_counts(monkeypatch):
+    import httpx
+    import config
+    from langchain_ollama import ChatOllama
+
+    monkeypatch.setattr(config, 'OLLAMA_MODEL', 'test-offline:8b')
+    monkeypatch.delenv('OPENAI_API_KEY', raising=False)
+    requests = []
+    def respond(request):
+        assert str(request.url) == 'http://127.0.0.1:11434/api/chat'
+        body = json.loads(request.content)
+        requests.append(body)
+        assert body['model'] == 'test-offline:8b'
+        assert body['options']['temperature'] == 0
+        assert 'get_track_list' in [tool['function']['name'] for tool in body['tools']]
+        if len(requests) == 1:
+            message = {'role': 'assistant', 'content': '', 'tool_calls': [
+                {'function': {'name': 'get_track_list', 'arguments': {}}},
+            ]}
+        else:
+            assert body['messages'][-1]['role'] == 'tool'
+            message = {'role': 'assistant', 'content': 'Dostępne są trzy utwory.'}
+        payload = {'model': body['model'], 'message': message, 'done': True,
+                   'done_reason': 'stop', 'prompt_eval_count': 10, 'eval_count': 3}
+        return httpx.Response(200, text=json.dumps(payload) + '\n')
+    def local_model(**kwargs):
+        return ChatOllama(**{**kwargs, 'client_kwargs': {
+            **kwargs['client_kwargs'], 'transport': httpx.MockTransport(respond),
+        }})
+    monkeypatch.setattr('assistant.ChatOllama', local_model)
+    assistant = Assistant(CarSystem())
+    report = SessionReport()
+    response = assistant.handle_text('Jakie masz utwory?', report=report, turn_id=report.begin_turn())
+    assert response == 'Dostępne są trzy utwory.'
+    assert len(requests) == 2
+    data = report.snapshot()
+    assert data['metrics']['Pojedyncze żądanie LLM']['n'] == 2
+    assert data['metrics']['Narzędzie: get_track_list']['n'] == 1
+    assert data['tokens'] == {'input_tokens': 20, 'output_tokens': 6, 'total_tokens': 26,
+                              'known_requests': 2, 'missing_requests': 0}
+    assert next(event for event in data['events'] if event['type'] == 'tool_end')['success'] is True
+
+
+def test_empty_model_name_is_rejected_and_cloud_tracing_is_disabled(monkeypatch):
+    import os
+    import pytest
+    import config
+    try:
+        with monkeypatch.context() as environment:
+            environment.setenv('OLLAMA_MODEL', '   ')
+            environment.setenv('LANGSMITH_TRACING', 'true')
+            environment.setenv('LANGCHAIN_TRACING_V2', 'true')
+            with pytest.raises(ValueError, match='OLLAMA_MODEL'):
+                importlib.reload(config)
+            assert os.environ['LANGSMITH_TRACING'] == 'false'
+            assert os.environ['LANGCHAIN_TRACING_V2'] == 'false'
+    finally:
+        importlib.reload(config)
+
+
+def test_missing_ollama_model_is_reported_without_cloud_fallback(monkeypatch):
+    import httpx
+    import pytest
+    from ollama import ResponseError
+    from langchain_ollama import ChatOllama
+    requests = []
+    def not_found(request):
+        requests.append(str(request.url))
+        return httpx.Response(404, json={'error': 'model not found'})
+    def local_model(**kwargs):
+        return ChatOllama(**{**kwargs, 'client_kwargs': {
+            **kwargs['client_kwargs'], 'transport': httpx.MockTransport(not_found),
+        }})
+    monkeypatch.setattr('assistant.ChatOllama', local_model)
+    assistant = Assistant(CarSystem())
+    report = SessionReport()
+    with pytest.raises(ResponseError, match='model not found'):
+        assistant.handle_text('Włącz muzykę', report=report, turn_id=report.begin_turn())
+    assert requests == ['http://127.0.0.1:11434/api/chat']
+    assert report.snapshot()['events'][-1]['success'] is False

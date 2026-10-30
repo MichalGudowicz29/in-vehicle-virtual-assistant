@@ -37,7 +37,7 @@ def test_report_measures_turns_requests_tools_and_partial_token_coverage(monkeyp
     assert data['metrics']['Cała tura']['mean_s'] == pytest.approx(5.8)
     assert data['tokens'] == {'input_tokens': 10, 'output_tokens': 2, 'total_tokens': 12, 'known_requests': 1, 'missing_requests': 1}
     text = text_path.read_text()
-    for expected in ['ASR: Vosk', 'LLM: gpt-4o-mini', 'TTS: Supertonic', 'TURA 1', '+02.450', 'Zadzwoń do Anny', 'get_contacts [OK]', 'Mobilny czy służbowy?', 'STATYSTYKI SESJI', 'estymacja Vosk']:
+    for expected in ['ASR: Vosk', f"LLM: {data['models']['llm']}", 'TTS: Supertonic', 'TURA 1', '+02.450', 'Zadzwoń do Anny', 'get_contacts [OK]', 'Mobilny czy służbowy?', 'STATYSTYKI SESJI', 'estymacja Vosk']:
         assert expected in text
 
 
