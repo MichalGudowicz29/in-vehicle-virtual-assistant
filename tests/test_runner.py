@@ -76,7 +76,8 @@ if run != 2:
               dict(type='tool_end', turn_id=1, run_id='call', name='call_contact', success=run == 1)]
 data = dict(session_id=f'session_{run}', models=dict(asr='Vosk small-pl-0.22', llm=os.environ['OLLAMA_MODEL'], tts='Supertonic'),
             input_source=dict(type='audiofile', path=args.audio_file),
-            turns=[dict(id=1, status='completed')], events=events, duration_s=1.5)
+            turns=[dict(id=1, status='completed')], events=events, duration_s=1.5,
+            metrics={'Cała tura': dict(n=1, mean_s=float(run), min_s=float(run), max_s=float(run))}, tokens={})
 (args.report_dir / f'session_{run}.json').write_text(json.dumps(data))
 (args.report_dir / f'session_{run}.txt').write_text('session report')
 print('Child process finished')
@@ -93,6 +94,9 @@ print('Child process finished')
     assert [run['success'] for run in summary['runs']] == [True, False, False]
     assert summary['success_count'] == 1
     assert summary['repetitions'] == 3
+    assert summary['success_rate_percent'] == pytest.approx(100 / 3)
+    assert summary['statistics']['metrics']['Cała tura']['mean_s'] == 2
+    assert summary['best_run']['run'] == summary['worst_run']['run'] == 1
     configuration = (experiment / 'config.txt').read_text()
     for value in ('Robert Lewandowski', 'mobile', 'call_contact', 'test/model:2b', 'vosk', '3', 'Telefon.mp3'):
         assert value in configuration
@@ -131,3 +135,85 @@ def test_invalid_child_execution_is_recorded_instead_of_counted_as_success(monke
     assert summary['success_count'] == 0
     assert len(summary['runs']) == 3
     assert all(reason in run['reason'] for run in summary['runs'])
+
+
+def test_summary_aggregates_all_runs_with_weighted_timings_and_ranks_successes(tmp_path):
+    from runner import _save_summary
+    runs = []
+    for number, success, duration, turn, requests, llm_mean, tokens, known, missing in [
+        (1, True, 12, 10, 1, 2, 10, 1, 0),
+        (2, True, 21, 20, 3, 6, 50, 3, 0),
+        (3, False, 3, 1, 1, 1, None, 0, 1),
+    ]:
+        runs.append(dict(run=number, success=success, reason='wynik', duration_s=duration,
+                         session_id=f'session_{number}', report=f'run_{number:02d}/session.json',
+                         metrics={'Cała tura': dict(n=1, mean_s=turn, min_s=turn, max_s=turn),
+                                  'Pojedyncze żądanie LLM': dict(n=requests, mean_s=llm_mean, min_s=llm_mean, max_s=llm_mean)},
+                         tokens=dict(input_tokens=tokens, output_tokens=None, total_tokens=None,
+                                     known_requests=known, missing_requests=missing)))
+    summary = dict(task='Zadanie1', repetitions=3, runs=runs)
+    _save_summary(tmp_path, summary)
+    data = json.loads((tmp_path / 'summary.json').read_text())
+    assert data['success_rate_percent'] == pytest.approx(200 / 3)
+    assert data['best_run']['run'] == 1
+    assert data['worst_run']['run'] == 2
+    assert data['best_run']['turn_duration_s'] == 10
+    assert data['worst_run']['turn_duration_s'] == 20
+    stats = data['statistics']
+    assert stats['duration_s'] == dict(n=3, mean=12, min=3, max=21)
+    assert stats['metrics']['Pojedyncze żądanie LLM'] == dict(n=5, runs=3, mean_s=4.2, min_s=1, max_s=6)
+    assert stats['metrics']['Cała tura']['mean_s'] == pytest.approx(31 / 3)
+    assert stats['tokens']['input_tokens'] == dict(n=2, mean=30, min=10, max=50)
+    assert stats['token_coverage'] == dict(known_requests=4, missing_requests=1)
+    text = (tmp_path / 'summary.txt').read_text()
+    for expected in ('66.67%', 'Najlepsza próba: 01', 'Najgorsza próba: 02',
+                     'Pojedyncze żądanie LLM', '4.200', 'Tokeny wejściowe'):
+        assert expected in text
+
+
+def test_empty_summary_has_no_fake_zero_measurements_or_ranking(tmp_path):
+    from runner import _save_summary
+    summary = dict(task='Zadanie1', repetitions=3, runs=[])
+    _save_summary(tmp_path, summary)
+    data = json.loads((tmp_path / 'summary.json').read_text())
+    assert data['success_rate_percent'] is None
+    assert data['best_run'] is None
+    assert data['worst_run'] is None
+    assert data['statistics']['duration_s'] == dict(n=0, mean=None, min=None, max=None)
+    assert 'brak danych' in (tmp_path / 'summary.txt').read_text()
+
+
+def test_failed_runs_count_toward_success_rate_but_not_ranking(tmp_path):
+    from runner import _save_summary
+    summary = dict(task='Zadanie1', repetitions=3, runs=[
+        dict(run=1, success=False, reason='timeout', duration_s=None),
+        dict(run=2, success=False, reason='brak call_contact', duration_s=5),
+    ])
+    _save_summary(tmp_path, summary)
+    data = json.loads((tmp_path / 'summary.json').read_text())
+    assert data['success_rate_percent'] == 0
+    assert data['best_run'] is None and data['worst_run'] is None
+    assert data['statistics']['duration_s']['n'] == 1
+    assert data['statistics']['duration_s']['mean'] == 5
+
+
+def test_summary_lists_ten_run_statistics_before_averages_and_success_rate(tmp_path):
+    from runner import _save_summary
+    runs = [dict(run=i, success=i % 2 == 0, reason='ocena zadania', duration_s=i + 1,
+                 metrics={'Cała tura': dict(n=1, mean_s=i, min_s=i, max_s=i)},
+                 tokens=dict(input_tokens=i * 10)) for i in range(1, 11)]
+    _save_summary(tmp_path, dict(task='Zadanie1', repetitions=10, runs=runs))
+    text = (tmp_path / 'summary.txt').read_text()
+    positions = [text.index(f'RUN {i:02d} —') for i in range(1, 11)]
+    assert positions == sorted(positions)
+    aggregate_at = text.index('ŚREDNIE STATYSTYKI Z 10 PRÓB')
+    assert positions[-1] < aggregate_at < text.index('Success rate')
+    first = text[positions[0]:positions[1]]
+    tenth = text[positions[-1]:aggregate_at]
+    assert 'Cała tura' in first and '1.000' in first
+    assert 'Tokeny wejściowe: 10' in first
+    assert 'Cała tura' in tenth and '10.000' in tenth
+    assert 'Tokeny wejściowe: 100' in tenth
+    data = json.loads((tmp_path / 'summary.json').read_text())
+    assert data['statistics']['metrics']['Cała tura']['mean_s'] == 5.5
+    assert data['success_rate_percent'] == 50

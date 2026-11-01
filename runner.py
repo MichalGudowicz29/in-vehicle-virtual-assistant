@@ -8,6 +8,8 @@ import subprocess
 import sys
 from datetime import datetime
 from uuid import uuid4
+from math import isfinite
+from statistics import mean
 
 import config
 from asr import model_label, resolve_model
@@ -54,14 +56,90 @@ def evaluate_session(data) -> tuple[bool, str]:
     return True, 'Jedno poprawne call_contact dla Roberta Lewandowskiego (mobile), wynik OK.'
 
 
+def _stats(values):
+    values = [value for value in values
+              if type(value) in (int, float) and isfinite(value) and value >= 0]
+    return dict(n=len(values), mean=mean(values) if values else None,
+                min=min(values) if values else None, max=max(values) if values else None)
+
+
 def _save_summary(directory, summary):
-    summary['success_count'] = sum(run['success'] for run in summary['runs'])
+    runs = summary['runs']
+    summary['success_count'] = sum(run['success'] for run in runs)
+    summary['success_rate_percent'] = 100 * summary['success_count'] / len(runs) if runs else None
+    measurements = {}
+    ranked = []
+    for run in runs:
+        for name, metric in run.get('metrics', {}).items():
+            values = [metric.get(key) for key in ('mean_s', 'min_s', 'max_s')]
+            if (type(metric.get('n')) is not int or metric['n'] <= 0
+                    or not all(type(value) in (int, float) and isfinite(value) and value >= 0
+                               for value in values)):
+                continue
+            measurements.setdefault(name, []).append(metric)
+            if name == 'Cała tura' and run['success']:
+                ranked.append(dict(run=run['run'], session_id=run.get('session_id'),
+                                   report=run.get('report'), turn_duration_s=metric['mean_s']))
+    summary['best_run'] = min(ranked, key=lambda run: run['turn_duration_s']) if ranked else None
+    summary['worst_run'] = max(ranked, key=lambda run: run['turn_duration_s']) if ranked else None
+    summary['statistics'] = {
+        'duration_s': _stats(run.get('duration_s') for run in runs),
+        'metrics': {name: dict(n=sum(m['n'] for m in metrics), runs=len(metrics),
+                               mean_s=sum(m['n'] * m['mean_s'] for m in metrics) / sum(m['n'] for m in metrics),
+                               min_s=min(m['min_s'] for m in metrics), max_s=max(m['max_s'] for m in metrics))
+                    for name, metrics in measurements.items()},
+        'tokens': {key: _stats(run.get('tokens', {}).get(key) for run in runs)
+                   for key in ('input_tokens', 'output_tokens', 'total_tokens')},
+        'token_coverage': {key: sum(run.get('tokens', {}).get(key, 0) for run in runs)
+                           for key in ('known_requests', 'missing_requests')},
+    }
+    rate = summary['success_rate_percent']
     lines = [f"Zadanie: {summary['task']}",
-             f"Sukces: {summary['success_count']}/{summary['repetitions']}",
-             f"Zakończone próby: {len(summary['runs'])}/{summary['repetitions']}", '']
-    for run in summary['runs']:
+             f"Zakończone próby: {len(runs)}/{summary['repetitions']}"]
+    for run in runs:
         label = 'SUKCES' if run['success'] else 'NIEPOWODZENIE'
-        lines.append(f"Próba {run['run']:02d}: {label} — {run['reason']}")
+        lines.extend(['', f"RUN {run['run']:02d} — {label}", f"Ocena: {run['reason']}",
+                      f"Raport: {run.get('report') or 'brak danych'}"])
+        duration = run.get('duration_s')
+        lines.append(f'Czas całej sesji: {duration:.3f} s' if duration is not None
+                     else 'Czas całej sesji: brak danych')
+        lines.append(f"{'Pomiar':44} {'N':>5} {'Średnia [s]':>13} {'Min [s]':>10} {'Max [s]':>10}")
+        for name, metric in run.get('metrics', {}).items():
+            lines.append(f"{name:44} {metric['n']:5d} {metric['mean_s']:13.3f} {metric['min_s']:10.3f} {metric['max_s']:10.3f}")
+        if not run.get('metrics'):
+            lines.append('Pomiary etapów: brak danych')
+        tokens = run.get('tokens', {})
+        for key, title in [('input_tokens', 'Tokeny wejściowe'), ('output_tokens', 'Tokeny wyjściowe'), ('total_tokens', 'Tokeny razem')]:
+            value = tokens.get(key)
+            lines.append(f"{title}: {value if value is not None else 'brak danych'}")
+        lines.append(f"Pokrycie tokenów: {tokens.get('known_requests', 0)} żądań z danymi / {tokens.get('missing_requests', 0)} bez danych.")
+    statistics = summary['statistics']
+    lines.extend(['', f'ŚREDNIE STATYSTYKI Z {len(runs)} PRÓB',
+                  'Wszystkie dostępne pomiary, także z nieudanych prób; braki nie są zerami.',
+                  'Średnie żądań LLM i narzędzi są ważone liczbą pomiarów N.',
+                  f"{'Pomiar':44} {'N':>5} {'Próby':>6} {'Średnia [s]':>13} {'Min [s]':>10} {'Max [s]':>10}"])
+    duration = statistics['duration_s']
+    if duration['n']:
+        lines.append(f"{'Czas całej sesji':44} {duration['n']:5d} {duration['n']:6d} {duration['mean']:13.3f} {duration['min']:10.3f} {duration['max']:10.3f}")
+    else:
+        lines.append('Czas całej sesji: brak danych')
+    for name, metric in statistics['metrics'].items():
+        lines.append(f"{name:44} {metric['n']:5d} {metric['runs']:6d} {metric['mean_s']:13.3f} {metric['min_s']:10.3f} {metric['max_s']:10.3f}")
+    lines.extend(['', 'TOKENY NA PRÓBĘ (tylko dostępne zużycie)',
+                  f"{'Pomiar':24} {'Próby':>6} {'Średnia':>13} {'Min':>10} {'Max':>10}"])
+    for key, title in [('input_tokens', 'Tokeny wejściowe'), ('output_tokens', 'Tokeny wyjściowe'), ('total_tokens', 'Tokeny razem')]:
+        metric = statistics['tokens'][key]
+        lines.append(f"{title:24} {metric['n']:6d} {metric['mean']:13.2f} {metric['min']:10.0f} {metric['max']:10.0f}"
+                     if metric['n'] else f'{title}: brak danych')
+    coverage = statistics['token_coverage']
+    lines.extend([f"Pokrycie tokenów: {coverage['known_requests']} żądań z danymi / {coverage['missing_requests']} bez danych.",
+                  '', f"Sukces: {summary['success_count']}/{len(runs)}",
+                  f"Success rate (wszystkie zakończone próby, także błędy i timeouty): {f'{rate:.2f}%' if rate is not None else 'brak danych'}",
+                  'Ranking: czas całej tury, wyłącznie próby z sukcesem zadania.'])
+    for key, title in [('best_run', 'Najlepsza próba'), ('worst_run', 'Najgorsza próba')]:
+        run = summary[key]
+        lines.append(f"{title}: {run['run']:02d} — {run['turn_duration_s']:.3f} s | {run['report']}"
+                     if run else f'{title}: brak danych')
     for name, contents in [('summary.json', json.dumps(summary, ensure_ascii=False, indent=2)),
                            ('summary.txt', '\n'.join(lines) + '\n')]:
         path = directory / name
@@ -129,6 +207,8 @@ def main() -> int:
                 raise ValueError('Raport nie pochodzi z oczekiwanego pliku audio.')
             result['session_id'] = data.get('session_id')
             result['duration_s'] = data.get('duration_s')
+            result['metrics'] = data.get('metrics', {})
+            result['tokens'] = data.get('tokens', {})
             result['success'], result['reason'] = evaluate_session(data)
         except subprocess.TimeoutExpired:
             result['reason'] = f'Przekroczono limit czasu próby ({TIMEOUT_S} s); proces zakończony.'

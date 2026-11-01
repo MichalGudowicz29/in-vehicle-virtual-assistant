@@ -250,6 +250,23 @@ oczekiwanym efektem; `summary.txt` i `summary.json` przechowują wyniki wszystki
 prób. W podfolderach `run_01`, `run_02`, `run_03` znajdują się oryginalne raporty
 sesji TXT/JSON oraz `console.log`. Kolejny eksperyment tworzy nowy folder.
 
+`summary.txt` zawiera najpierw osobny blok każdego runa: ocenę zadania i jej powód,
+czas sesji, wszystkie pomiary etapów N/średnia/min/max oraz tokeny. Po ostatnim
+runie znajduje się sekcja średnich ze wszystkich dostępnych raportów, także prób
+nieudanych, oraz success rate. Brak pomiaru nie jest traktowany jak zero;
+kolumny N i Próby pokazują pokrycie danych. Średnie czasów pojedynczych żądań LLM
+i narzędzi są ważone ich liczbą N, nie liczone jako średnia ze średnich runów.
+Zużycie tokenów jest uśredniane na próbę z dostępnymi danymi; raport podaje też
+liczbę żądań z i bez danych o tokenach.
+
+Success rate to odsetek sukcesów wśród zakończonych prób; błędy i timeouty
+wchodzą do mianownika. Podczas eksperymentu niezrealizowane jeszcze powtórzenia
+nie są liczone jako porażki. Best/worst run oznaczają najkrótszą/najdłuższą
+pełną turę wśród prób z sukcesem zadania i dostępnym pomiarem „Cała tura”.
+Gdy żadna próba nie spełnia tych warunków, ranking pokazuje brak danych.
+`summary.json` zachowuje pomiary i tokeny w każdym elemencie `runs`, a statystyki
+zbiorcze w `statistics`, `success_rate_percent`, `best_run` i `worst_run`.
+
 Oczekiwany efekt to dokładnie jedno wywołanie
 `call_contact(name="Robert Lewandowski", number_type="mobile")`. Parametry muszą
 być zgodne z oczekiwaniem, a odpowiadający mu `tool_end` musi mieć `success=True`
