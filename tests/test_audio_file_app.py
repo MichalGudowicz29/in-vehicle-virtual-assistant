@@ -15,7 +15,7 @@ def test_cli_file_turn_finishes_after_response_and_writes_report(tmp_path, music
         audio.setsampwidth(2)
         audio.setframerate(16000)
         audio.writeframes(bytes(16000 * 2))
-    output = tmp_path / 'reports'
+    output = tmp_path / 'Konfiguracja1_Zadanie1' / 'raporty sesji'
     script = '''
 import json
 from pathlib import Path
@@ -24,7 +24,6 @@ import sys
 import pygame
 import asr
 import voice_worker
-from session_report import SessionReport
 
 wav_path, output, music_file = sys.argv[1:]
 load = pygame.mixer.music.load
@@ -59,9 +58,7 @@ def speak(text, on_event):
     for event in ['tts_start', 'tts_end', 'audio_start', 'audio_end']:
         on_event(event)
 voice_worker.VoiceWorker._speak_response = staticmethod(speak)
-original_save = SessionReport.save
-SessionReport.save = lambda self: original_save(self, Path(output))
-sys.argv = ['main.py', '--audio-file', wav_path]
+sys.argv = ['main.py', '--audio-file', wav_path, '--report-dir', output]
 runpy.run_path('main.py', run_name='__main__')
 '''
     result = subprocess.run([sys.executable, '-c', script, str(path), str(output), str(music_file)],
@@ -87,4 +84,15 @@ def test_cli_rejects_missing_file_before_starting_application(tmp_path):
                             text=True, capture_output=True, timeout=20)
     assert result.returncode == 2
     assert 'Nie znaleziono pliku audio' in result.stderr
+    assert 'Starting assistant thread' not in result.stdout
+
+
+def test_cli_rejects_report_directory_that_is_a_file(tmp_path):
+    path = tmp_path / 'occupied'
+    path.write_text('keep me')
+    result = subprocess.run([sys.executable, 'main.py', '--report-dir', str(path)],
+                            text=True, capture_output=True, timeout=20)
+    assert result.returncode == 2
+    assert 'Nie można przygotować folderu raportów' in result.stderr
+    assert path.read_text() == 'keep me'
     assert 'Starting assistant thread' not in result.stdout

@@ -54,3 +54,23 @@ def test_report_save_error_does_not_block_shutdown(monkeypatch, tmp_path):
     controller.finished.connect(lambda: finished.append(True))
     controller.finish()
     assert finished == [True]
+
+
+def test_custom_report_directory_keeps_ten_runs_separate(monkeypatch, tmp_path):
+    import json
+    from session_report import SessionReport
+    monkeypatch.chdir(tmp_path)
+    output = tmp_path / 'Konfiguracja1_Zadanie1' / 'raporty sesji'
+    session_ids = set()
+    for _ in range(10):
+        report = SessionReport()
+        turn = report.begin_turn()
+        report.end_turn(turn, 'completed')
+        controller = ShutdownController(Event(), report=report, report_directory=output)
+        controller.finish()
+        session_ids.add(report.session_id)
+    paths = list(output.glob('*.json'))
+    assert len(paths) == 10
+    assert len(list(output.glob('*.txt'))) == 10
+    assert {json.loads(path.read_text())['session_id'] for path in paths} == session_ids
+    assert not Path('logs/sessions').exists()

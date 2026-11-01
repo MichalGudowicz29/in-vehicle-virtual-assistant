@@ -201,3 +201,36 @@ def test_invalid_audio_file_is_a_failed_turn_and_worker_still_finishes(monkeypat
         worker.run()
     assert finished == [True]
     assert report.snapshot()['counts']['failed'] == 1
+
+
+def test_unavailable_ollama_prints_actionable_message_and_records_failed_turn(monkeypatch, capsys):
+    import httpx
+    from langchain_ollama import ChatOllama
+    from session_report import SessionReport
+
+    requests = []
+    def refused(request):
+        requests.append(str(request.url))
+        raise httpx.ConnectError('[Errno 61] Connection refused', request=request)
+    def local_model(**kwargs):
+        return ChatOllama(**{**kwargs, 'client_kwargs': {
+            **kwargs['client_kwargs'], 'transport': httpx.MockTransport(refused),
+        }})
+    monkeypatch.setattr('assistant.ChatOllama', local_model)
+    monkeypatch.setattr('asr.listen', lambda stop, **kwargs: 'Włącz muzykę')
+    report = SessionReport()
+    worker = VoiceWorker(CarSystem(), report=report)
+    finished = []
+    worker.finished.connect(lambda: finished.append(True))
+    worker.run()
+    message = capsys.readouterr().err
+    assert 'Nie można połączyć się z Ollamą' in message
+    assert 'http://127.0.0.1:11434' in message
+    assert 'ollama serve' in message
+    assert 'Traceback' not in message
+    assert requests == ['http://127.0.0.1:11434/api/chat']
+    assert finished == [True]
+    data = report.snapshot()
+    assert data['counts']['failed'] == 1
+    error = next(e for e in data['events'] if e['type'] == 'session_error')
+    assert error['error'] == message.strip()

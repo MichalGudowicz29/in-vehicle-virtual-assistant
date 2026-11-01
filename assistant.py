@@ -1,5 +1,7 @@
 import config
 
+from httpx import ConnectError
+
 from langchain.agents import create_agent # type: ignore
 from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.config import merge_configs
@@ -255,8 +257,17 @@ class Assistant:
                         if isinstance(message, AIMessage) and not message.tool_calls:
                             final_text = message.text
         except Exception as error:
+            message = str(error)
+            if isinstance(error, ConnectError):
+                message = (
+                    "Nie można połączyć się z Ollamą pod http://127.0.0.1:11434. "
+                    "Uruchom aplikację Ollama lub polecenie 'ollama serve', "
+                    "a następnie ponownie uruchom asystenta."
+                )
             if report is not None:
-                report.emit("agent_end", turn_id=turn_id, success=False, error=str(error))
+                report.emit("agent_end", turn_id=turn_id, success=False, error=message)
+            if isinstance(error, ConnectError):
+                raise ConnectionError(message) from error
             raise
         if report is not None:
             report.emit("agent_end", turn_id=turn_id, success=True, text=final_text)

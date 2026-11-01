@@ -20,11 +20,18 @@ from session_controls import SessionControls
 
 parser = argparse.ArgumentParser(description="Asystent samochodowy: mikrofon lub jedna tura z pliku audio.")
 parser.add_argument("--audio-file", type=Path, help="Plik audio podawany do ASR w naturalnym tempie.")
+parser.add_argument("--report-dir", type=Path, default=Path("logs/sessions"),
+                    help="Folder raportów TXT i JSON (domyślnie: logs/sessions).")
 args, qt_args = parser.parse_known_args()
 if args.audio_file is not None:
     args.audio_file = args.audio_file.expanduser().resolve()
     if not args.audio_file.is_file():
         parser.error(f"Nie znaleziono pliku audio: {args.audio_file}")
+args.report_dir = args.report_dir.expanduser().resolve()
+try:
+    args.report_dir.mkdir(parents=True, exist_ok=True)
+except OSError as error:
+    parser.error(f"Nie można przygotować folderu raportów {args.report_dir}: {error}")
 
 app = QApplication([sys.argv[0], *qt_args])
 app.setQuitOnLastWindowClosed(False)
@@ -38,7 +45,8 @@ assistant_thread = QThread()
 
 #startowanie VoiceWorker w osobnym wątku
 voice_worker = VoiceWorker(car, report=session_report, audio_file=args.audio_file)
-shutdown_controller = ShutdownController(voice_worker.stop_event, report=session_report)
+shutdown_controller = ShutdownController(voice_worker.stop_event, report=session_report,
+                                         report_directory=args.report_dir)
 
 #przeniesienie VoiceWorker do osobnego wątku
 voice_worker.moveToThread(assistant_thread)

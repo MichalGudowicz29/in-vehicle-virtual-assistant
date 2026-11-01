@@ -1,4 +1,5 @@
 import threading
+import sys
 import time
 from functools import partial
 from pathlib import Path
@@ -67,7 +68,10 @@ class VoiceWorker(QObject):
                 self.report.emit("session_error", turn_id=turn_id, error=str(error))
                 if turn_id is not None:
                     self.report.end_turn(turn_id, "failed")
-            raise
+            if isinstance(error, ConnectionError):
+                print(str(error), file=sys.stderr, flush=True)
+            else:
+                raise
         finally:
             self.finished.emit()
 

@@ -9,10 +9,11 @@ class ShutdownController(QObject):
     closingChanged = Signal()
     finished = Signal()
 
-    def __init__(self, stop_event, report=None):
+    def __init__(self, stop_event, report=None, report_directory=Path("logs/sessions")):
         super().__init__()
         self.stop_event = stop_event
         self.report = report
+        self.report_directory = Path(report_directory)
         self._closing = False
         self.started_at = datetime.now().astimezone()
         self.started_timer = perf_counter()
@@ -34,7 +35,7 @@ class ShutdownController(QObject):
     def finish(self):
         if self.report is not None:
             try:
-                for path in self.report.save():
+                for path in self.report.save(self.report_directory):
                     print(f"Raport: {path.resolve()}", flush=True)
             except Exception as error:
                 print(f"Nie udało się zapisać raportu: {error}", flush=True)
@@ -50,7 +51,7 @@ class ShutdownController(QObject):
         )
         print(report, flush=True)
         try:
-            directory = Path("logs/sessions")
+            directory = self.report_directory
             directory.mkdir(parents=True, exist_ok=True)
             path = directory / f"{self.started_at:%Y%m%d_%H%M%S_%f}.txt"
             path.write_text(report, encoding="utf-8")

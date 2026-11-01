@@ -127,6 +127,26 @@ biblioteki PortAudio i Qt, których samo `uv sync` nie dostarcza.
 uv run python main.py --audio-file assets/voice/Telefon.mp3
 ```
 
+Folder wyników można wskazać parametrem `--report-dir`, także w trybie mikrofonu:
+
+```bash
+OLLAMA_MODEL=qwen3.5:4b uv run python main.py \
+  --audio-file assets/voice/Telefon.mp3 \
+  --report-dir logs/eksperymenty/Konfiguracja1_Zadanie2
+```
+
+Folder i brakujące katalogi nadrzędne powstają automatycznie. Każde uruchomienie
+zapisuje osobną parę `session_<czas>_<id>.txt` i `.json`, więc dziesięć uruchomień
+do tego samego folderu daje dziesięć par raportów. Bez parametru wyniki trafiają
+do `logs/sessions/`. Ścieżki względne odnoszą się do katalogu uruchomienia programu.
+Nieprawidłowy folder (np. ścieżka zajęta przez plik) powoduje błąd przed startem UI.
+
+Przyszły runner może przekazywać ten sam folder dla kolejnych powtórzeń danej
+konfiguracji i zadania. Automatyczny runner i import wyników do Excela nie są
+jeszcze zaimplementowane. Pole `counts.completed` potwierdza ukończenie tury,
+a nie poprawność wykonania scenariusza; błędy są zapisane w JSON i nie należy
+oceniać powodzenia wyłącznie po kodzie zakończenia procesu.
+
 Plik zastępuje mikrofon. Aplikacja podaje jego audio do Vosk w naturalnym
 tempie 1x, wykonuje jedną turę agenta i TTS, a po zakończeniu odpowiedzi
 zapisuje raport TXT/JSON i zamyka się automatycznie. Wejście nie jest dodatkowo
