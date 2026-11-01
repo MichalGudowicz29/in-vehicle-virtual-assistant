@@ -1,7 +1,7 @@
 import json
 from threading import Event
 
-import asr
+import asr.vosk as asr
 
 
 def test_stop_during_partial_transcription_finishes_speech(monkeypatch):
@@ -38,7 +38,7 @@ def test_stop_during_partial_transcription_finishes_speech(monkeypatch):
     monkeypatch.setattr(sounddevice, "query_devices", lambda **kwargs: {"default_samplerate": 16000})
     monkeypatch.setattr(sounddevice, "RawInputStream", FakeStream)
 
-    assert asr.listen(stop) == "włącz muzykę"
+    assert asr.asr_vosk(stop) == "włącz muzykę"
 
 
 def test_stop_before_listening_does_not_open_microphone(monkeypatch):
@@ -51,7 +51,7 @@ def test_stop_before_listening_does_not_open_microphone(monkeypatch):
     stop = Event()
     stop.set()
 
-    assert asr.listen(stop) is None
+    assert asr.asr_vosk(stop) is None
 
 
 def test_vosk_word_boundaries_use_first_audio_time_after_empty_results(monkeypatch):
@@ -85,7 +85,7 @@ def test_vosk_word_boundaries_use_first_audio_time_after_empty_results(monkeypat
     monkeypatch.setattr(asr, 'KaldiRecognizer', lambda *args: Recognizer())
     monkeypatch.setattr(sounddevice, 'query_devices', lambda **kwargs: {'default_samplerate': 16000})
     monkeypatch.setattr(sounddevice, 'RawInputStream', Stream)
-    text = asr.listen(stop, on_event=lambda kind, **data: events.append((kind, data)))
+    text = asr.asr_vosk(stop, on_event=lambda kind, **data: events.append((kind, data)))
     assert text == 'włącz muzykę'
     assert events[0] == ('speech_start', {'at': 101.6})
     assert events[1] == ('speech_end', {'at': 102.6})
@@ -113,5 +113,5 @@ def test_asr_without_word_timing_keeps_transcription_and_reports_missing_boundar
     monkeypatch.setattr(asr, 'KaldiRecognizer', lambda *args: Recognizer())
     monkeypatch.setattr(sounddevice, 'query_devices', lambda **kwargs: {'default_samplerate': 16000})
     monkeypatch.setattr(sounddevice, 'RawInputStream', Stream)
-    assert asr.listen(Event(), on_event=lambda event, **data: events.append(event)) == 'włącz muzykę'
+    assert asr.asr_vosk(Event(), on_event=lambda event, **data: events.append(event)) == 'włącz muzykę'
     assert events == ['asr_warning', 'transcription_ready']

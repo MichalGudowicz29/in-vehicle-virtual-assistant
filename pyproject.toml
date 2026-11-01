@@ -13,6 +13,9 @@ dependencies = [
     "numpy>=2.5.4",
     "pygame>=2.6.1",
     "langchain-ollama>=1.1.0",
+    "pywhispercpp>=1.5.1",
+    "webrtcvad-wheels>=2.0.14.post1",
+    "soxr>=1.1.0",
 ]
 
 [dependency-groups]

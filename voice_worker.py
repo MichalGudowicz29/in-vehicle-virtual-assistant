@@ -7,16 +7,20 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Signal
 
 from assistant import Assistant
+from asr import resolve_model
 
 
 class VoiceWorker(QObject):
     finished = Signal()
 
-    def __init__(self, car, report=None, audio_file: Path | None = None):
+    def __init__(self, car, report=None, audio_file: Path | None = None, asr: str | None = None):
         super().__init__()
         self.car = car
         self.report = report
         self.audio_file = audio_file
+        self.asr = resolve_model(report.asr_model if asr is None and report is not None else asr)
+        if report is not None and self.asr != report.asr_model:
+            raise ValueError("Model ASR workera musi być zgodny z modelem raportu.")
         self.stop_event = threading.Event()
 
     def stop(self):
@@ -35,11 +39,9 @@ class VoiceWorker(QObject):
                     turn_id = self.report.begin_turn()
                     on_event = partial(self.report.emit, turn_id=turn_id)
                 if self.audio_file is not None:
-                    text = listen_file(self.audio_file, self.stop_event, on_event=on_event)
-                elif on_event is not None:
-                    text = listen(self.stop_event, on_event=on_event)
+                    text = listen_file(self.audio_file, self.stop_event, on_event=on_event, asr=self.asr)
                 else:
-                    text = listen(self.stop_event)
+                    text = listen(self.stop_event, on_event=on_event, asr=self.asr)
                 if text is None:
                     if self.report is not None:
                         self.report.discard_empty_turn(turn_id)

@@ -5,7 +5,7 @@ from threading import Event
 import numpy as np
 import pytest
 
-import asr
+import asr.vosk as asr
 
 
 def write_wav(path, samples, rate=8000):
@@ -47,7 +47,7 @@ def test_file_is_paced_without_drift_and_flushes_final_result(monkeypatch, tmp_p
         return Recognizer()
     monkeypatch.setattr(asr, 'KaldiRecognizer', recognizer)
     monkeypatch.setattr(asr, 'perf_counter', lambda: clock[0])
-    text = asr.listen_file(path, Stop(), on_event=lambda kind, **data: events.append((kind, data)))
+    text = asr.asr_vosk_file(path, Stop(), on_event=lambda kind, **data: events.append((kind, data)))
     assert text == 'włącz muzykę'
     assert waits == pytest.approx([1.0, .8])
     assert len(blocks) == 2 and all(np.all(block == 30000) for block in blocks)
@@ -61,7 +61,7 @@ def test_file_is_paced_without_drift_and_flushes_final_result(monkeypatch, tmp_p
 def test_stop_before_file_input_never_opens_file():
     stop = Event()
     stop.set()
-    assert asr.listen_file('does-not-exist.mp3', stop) is None
+    assert asr.asr_vosk_file('does-not-exist.mp3', stop) is None
 
 
 def test_unreadable_and_zero_frame_files_fail_before_loading_model(monkeypatch, tmp_path):
@@ -71,11 +71,11 @@ def test_unreadable_and_zero_frame_files_fail_before_loading_model(monkeypatch, 
     bad = tmp_path / 'bad.mp3'
     bad.write_text('not audio')
     with pytest.raises((RuntimeError, OSError)):
-        asr.listen_file(bad, Event())
+        asr.asr_vosk_file(bad, Event())
     empty = tmp_path / 'empty.wav'
     write_wav(empty, np.empty((0, 1), dtype=np.int16))
     with pytest.raises(ValueError, match='pust|Pust'):
-        asr.listen_file(empty, Event())
+        asr.asr_vosk_file(empty, Event())
 
 
 def test_file_without_recognized_speech_does_not_produce_empty_transcription(monkeypatch, tmp_path):
@@ -91,7 +91,7 @@ def test_file_without_recognized_speech_does_not_produce_empty_transcription(mon
     monkeypatch.setattr(asr, '_get_model', lambda: None)
     monkeypatch.setattr(asr, 'KaldiRecognizer', lambda *args: Recognizer())
     with pytest.raises(ValueError, match='rozpoznano mowy'):
-        asr.listen_file(path, Event())
+        asr.asr_vosk_file(path, Event())
 
 
 def test_shutdown_after_speech_detection_finishes_file_at_natural_speed(monkeypatch, tmp_path):
@@ -120,7 +120,7 @@ def test_shutdown_after_speech_detection_finishes_file_at_natural_speed(monkeypa
     monkeypatch.setattr(asr, 'KaldiRecognizer', lambda *args: Recognizer())
     monkeypatch.setattr(asr, 'perf_counter', lambda: clock[0])
     monkeypatch.setattr(asr, 'sleep', sleep)
-    assert asr.listen_file(path, stop) == 'włącz muzykę'
+    assert asr.asr_vosk_file(path, stop) == 'włącz muzykę'
     assert len(blocks) == 2
     assert slept == [1.0]
     assert clock[0] == 102.0
@@ -138,7 +138,7 @@ def test_shutdown_before_speech_detection_interrupts_file_without_transcription(
             raise AssertionError('Audio cancelled before it was available')
     monkeypatch.setattr(asr, '_get_model', lambda: None)
     monkeypatch.setattr(asr, 'KaldiRecognizer', lambda *args: Recognizer())
-    assert asr.listen_file(path, Stop()) is None
+    assert asr.asr_vosk_file(path, Stop()) is None
 
 
 def test_first_nonempty_endpoint_finishes_turn_without_waiting_for_file_tail(monkeypatch, tmp_path):
@@ -161,6 +161,6 @@ def test_first_nonempty_endpoint_finishes_turn_without_waiting_for_file_tail(mon
     monkeypatch.setattr(asr, '_get_model', lambda: None)
     monkeypatch.setattr(asr, 'KaldiRecognizer', lambda *args: Recognizer())
     monkeypatch.setattr(asr, 'perf_counter', lambda: clock[0])
-    assert asr.listen_file(path, Stop()) == 'włącz muzykę'
+    assert asr.asr_vosk_file(path, Stop()) == 'włącz muzykę'
     assert clock[0] == 101.0
     assert len(blocks) == 1

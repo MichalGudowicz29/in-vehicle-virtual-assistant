@@ -7,7 +7,7 @@ from time import perf_counter, sleep
 from vosk import KaldiRecognizer, Model
 
 
-MODEL_PATH = Path(__file__).resolve().parent / "models/vosk-model-small-pl-0.22"
+MODEL_PATH = Path(__file__).resolve().parent.parent / "models/vosk-model-small-pl-0.22"
 _model = None
 
 
@@ -19,8 +19,7 @@ def _get_model():
 
 
 
-#TODO Przejsc na whisper large
-def listen(stop_event: threading.Event, on_event=None) -> str | None:
+def asr_vosk(stop_event: threading.Event, on_event=None) -> str | None:
     if stop_event.is_set():
         return None
 
@@ -80,7 +79,7 @@ def listen(stop_event: threading.Event, on_event=None) -> str | None:
     return None
 
 
-def listen_file(path: Path, stop_event: threading.Event, on_event=None) -> str | None:
+def asr_vosk_file(path: Path, stop_event: threading.Event, on_event=None) -> str | None:
     if stop_event.is_set():
         return None
 

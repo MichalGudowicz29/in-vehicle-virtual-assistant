@@ -44,7 +44,8 @@ class SessionCallbacks(BaseCallbackHandler):
                    arguments=inputs if inputs is not None else input_str)
 
     def on_tool_end(self, output, *, run_id, **kwargs):
-        result = getattr(output, 'content', output)
+        content = getattr(output, 'content', output)
+        result = content
         if isinstance(result, str):
             try:
                 result = json.loads(result)
@@ -55,7 +56,8 @@ class SessionCallbacks(BaseCallbackHandler):
             success = False
         with self._lock:
             name = self._tools.pop(run_id, 'unknown')
-        self._emit('tool_end', run_id, name=name, success=success)
+        self._emit('tool_end', run_id, name=name, success=success,
+                   output=content, tool_call_id=getattr(output, 'tool_call_id', None))
 
     def on_tool_error(self, error, *, run_id, **kwargs):
         with self._lock:

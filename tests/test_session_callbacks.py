@@ -27,7 +27,8 @@ def test_callbacks_pair_runs_capture_usage_and_decode_tool_message():
     end = next(e for e in data['events'] if e['type'] == 'tool_end')
     assert end['success'] is True
     assert end['name'] == 'get_contacts'
-    assert not any('contacts' in e for e in data['events'])
+    assert end['output'] == '{"success": true, "contacts": []}'
+    assert end['tool_call_id'] == 'call1'
 
 
 def test_failed_tool_result_is_not_a_successful_execution():
@@ -131,3 +132,21 @@ def test_agent_preserves_callback_configuration_supported_by_langchain(callbacks
     assistant.agent = Agent()
     report = SessionReport()
     assert assistant.handle_text('test', report=report, turn_id=report.begin_turn()) == 'Gotowe'
+
+
+@pytest.mark.parametrize('content, status, expected_success', [
+    ('Brak pasujących adresów.\nSpróbuj ponownie.', 'success', None),
+    ('{"success": false, "message": "Nie znaleziono kontaktu"}', 'success', False),
+    ('Błąd wykonania narzędzia', 'error', False),
+    ([{'type': 'text', 'text': 'Lista kontaktów'}], 'success', None),
+])
+def test_tool_output_preserves_model_visible_content(content, status, expected_success):
+    report = SessionReport()
+    callback = SessionCallbacks(report, report.begin_turn())
+    run = uuid4()
+    callback.on_tool_start({'name': 'lookup'}, '{}', run_id=run, inputs={})
+    callback.on_tool_end(ToolMessage(content=content, tool_call_id='call-lookup', status=status), run_id=run)
+    event = report.snapshot()['events'][-1]
+    assert event['output'] == content
+    assert event['tool_call_id'] == 'call-lookup'
+    assert event['success'] is expected_success

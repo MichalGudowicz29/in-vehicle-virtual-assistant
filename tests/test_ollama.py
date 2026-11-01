@@ -42,7 +42,7 @@ def test_model_environment_variable_is_read_without_openai_key(monkeypatch):
         importlib.reload(config)
 
 
-def test_chatollama_executes_tools_and_reports_server_token_counts(monkeypatch):
+def test_chatollama_executes_tools_and_reports_server_token_counts(monkeypatch, tmp_path):
     import httpx
     import config
     from langchain_ollama import ChatOllama
@@ -82,7 +82,15 @@ def test_chatollama_executes_tools_and_reports_server_token_counts(monkeypatch):
     assert data['metrics']['Narzędzie: get_track_list']['n'] == 1
     assert data['tokens'] == {'input_tokens': 20, 'output_tokens': 6, 'total_tokens': 26,
                               'known_requests': 2, 'missing_requests': 0}
-    assert next(event for event in data['events'] if event['type'] == 'tool_end')['success'] is True
+    event = next(event for event in data['events'] if event['type'] == 'tool_end')
+    assert event['success'] is True
+    assert event['output'] == requests[1]['messages'][-1]['content']
+    txt, json_path = report.save(tmp_path)
+    saved_event = next(e for e in json.loads(json_path.read_text())['events'] if e['type'] == 'tool_end')
+    assert saved_event['output'] == requests[1]['messages'][-1]['content']
+    assert 'Wynik przekazany do LLM:' in txt.read_text()
+    for track in json.loads(event['output'])['tracks']:
+        assert track['title'] in txt.read_text()
 
 
 def test_empty_model_name_is_rejected_and_cloud_tracing_is_disabled(monkeypatch):

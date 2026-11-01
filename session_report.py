@@ -11,6 +11,7 @@ from time import perf_counter
 from uuid import uuid4
 
 import config
+from asr import model_label, resolve_model
 
 
 PAIRS = {
@@ -26,9 +27,9 @@ PAIRS = {
     'Cała tura': ('speech_start', 'turn_end'),
 }
 LABELS = {
-    'speech_detected': 'Vosk wykrył częściową wypowiedź',
-    'speech_start': 'Początek mowy użytkownika (estymacja Vosk)',
-    'speech_end': 'Koniec mowy (estymacja Vosk)',
+    'speech_detected': 'ASR wykrył wypowiedź',
+    'speech_start': 'Początek mowy użytkownika (estymacja ASR)',
+    'speech_end': 'Koniec mowy (estymacja ASR)',
     'transcription_ready': 'Transkrypcja gotowa',
     'agent_start': 'Start agenta', 'agent_end': 'Koniec agenta',
     'llm_start': 'Żądanie do LLM', 'llm_end': 'Odpowiedź LLM',
@@ -45,10 +46,11 @@ STATUSES = {'completed': 'zakończona', 'failed': 'błędna', 'interrupted': 'pr
 
 
 class SessionReport:
-    def __init__(self, audio_file: Path | None = None):
+    def __init__(self, audio_file: Path | None = None, asr_model: str | None = None):
         self.started_at = datetime.now().astimezone()
         self.started_timer = perf_counter()
         self.audio_file = audio_file
+        self.asr_model = resolve_model(asr_model)
         self.llm_model = config.OLLAMA_MODEL
         self.session_id = f'session_{self.started_at:%Y%m%d_%H%M%S}_{uuid4().hex[:8]}'
         self.events = []
@@ -138,7 +140,7 @@ class SessionReport:
             'session_id': self.session_id, 'started_at': self.started_at.isoformat(),
             'ended_at': ended_at.isoformat() if ended_at else None,
             'duration_s': duration,
-            'models': {'asr': 'Vosk', 'llm': self.llm_model, 'tts': 'Supertonic'},
+            'models': {'asr': model_label(self.asr_model), 'llm': self.llm_model, 'tts': 'Supertonic'},
             'input_source': ({'type': 'audiofile', 'path': str(self.audio_file)}
                              if self.audio_file is not None else {'type': 'microphone'}),
             'turns': turns, 'events': events,
@@ -186,7 +188,9 @@ def render_report(data):
     lines = [f"SESJA: {data['session_id']}", f"ASR: {models['asr']} | LLM: {models['llm']} | TTS: {models['tts']}",
              f"Wejście: {source_label}",
              f"Rozpoczęcie: {data['started_at']}", f"Zakończenie: {data['ended_at']}",
-             'Granice mowy: estymacja Vosk, według rozpoznanych słów.',
+             ('Granice mowy: estymacja Vosk, według rozpoznanych słów.'
+              if models['asr'].startswith('Vosk') else
+              'Granice mowy: estymacja WebRTC VAD, ramki 30 ms; próg ciszy 0,45 s.'),
              'Start audio: wywołanie odtwarzania; bez pomiaru akustycznego.',
              'Zakończona tura nie oznacza potwierdzenia wykonania zadania.', '']
     events = data['events']
@@ -251,6 +255,17 @@ def _history_lines(events, origin):
                            ('tools', 'Wywołaj'), ('screen', 'Ekran'), ('error', 'Błąd'), ('warning', 'Uwaga')):
             if key in event:
                 lines.append(f'         {title}: {json.dumps(event[key], ensure_ascii=False)}')
+        if 'output' in event:
+            output = event['output']
+            if isinstance(output, str):
+                try:
+                    output = json.loads(output)
+                except json.JSONDecodeError:
+                    pass
+            if not isinstance(output, str):
+                output = json.dumps(output, ensure_ascii=False, indent=2)
+            lines.append('         Wynik przekazany do LLM:')
+            lines.extend(f'           {line}' for line in output.splitlines() or [''])
         if kind in ('llm_start', 'tool_start', 'touch_start'):
             starts[(kind, run_id)] = event['time_s']
         if kind in ('llm_end', 'tool_end', 'touch_end'):

@@ -102,3 +102,23 @@ def test_file_source_is_in_header_and_json_without_changing_metric_definitions(t
     assert str(path) in text_path.read_text()
     assert data['metrics']['Koniec mowy → transkrypcja']['mean_s'] == .5
     assert SessionReport().snapshot()['input_source'] == {'type': 'microphone'}
+
+
+@pytest.mark.parametrize('output, expected', [
+    ('{"success": true, "contacts": [{"name": "Robert Lewandowski", "numbers": {"mobile": "501234567"}}]}',
+     '"mobile": "501234567"'),
+    ('Nie znaleziono adresu.\nPodaj miasto.', 'Podaj miasto.'),
+    ({'success': False, 'message': 'Błąd'}, '"success": false'),
+    ('', 'Wynik przekazany do LLM:'),
+])
+def test_saved_report_displays_full_tool_output(tmp_path, output, expected):
+    report = SessionReport()
+    turn = report.begin_turn()
+    report.emit('tool_start', turn_id=turn, run_id='tool1', name='lookup', arguments={})
+    report.emit('tool_end', turn_id=turn, run_id='tool1', name='lookup', success=True, output=output)
+    txt, json_path = report.save(tmp_path)
+    text = txt.read_text()
+    assert 'Wynik przekazany do LLM:' in text
+    assert expected in text
+    event = next(e for e in json.loads(json_path.read_text())['events'] if e['type'] == 'tool_end')
+    assert event['output'] == output

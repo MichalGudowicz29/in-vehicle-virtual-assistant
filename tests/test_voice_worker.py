@@ -15,7 +15,7 @@ def test_voice_worker_sends_microphone_transcription_to_assistant(monkeypatch):
             return ""
 
     monkeypatch.setattr("voice_worker.Assistant", FakeAssistant)
-    monkeypatch.setattr("asr.listen", lambda stop_event: "włącz muzykę")
+    monkeypatch.setattr("asr.listen", lambda stop_event, **kwargs: "włącz muzykę")
     worker = VoiceWorker(CarSystem())
 
     worker.run()
@@ -35,7 +35,7 @@ def test_stop_finishes_response_before_signalling_finished(monkeypatch):
             return "Gotowe"
 
     monkeypatch.setattr("voice_worker.Assistant", FakeAssistant)
-    monkeypatch.setattr("asr.listen", lambda stop_event: "włącz muzykę")
+    monkeypatch.setattr("asr.listen", lambda stop_event, **kwargs: "włącz muzykę")
     worker = VoiceWorker(None)
     monkeypatch.setattr(worker, "_speak_response", lambda text: actions.append(text))
     worker.finished.connect(lambda: actions.append("finished"))
@@ -66,7 +66,7 @@ def test_reported_turn_finishes_after_audio_and_empty_listening_is_discarded(mon
     from session_report import SessionReport
     report = SessionReport()
     texts = iter(['włącz muzykę', None])
-    def listen(stop, on_event):
+    def listen(stop, on_event, **kwargs):
         text = next(texts)
         if text:
             on_event('transcription_ready', text=text)
@@ -121,7 +121,7 @@ def test_post_response_pause_is_excluded_from_turn_duration(monkeypatch):
             pass
         def handle_text(self, text, **kwargs):
             return 'Gotowe'
-    def listen(stop, on_event):
+    def listen(stop, on_event, **kwargs):
         on_event('speech_start')
         clock[0] += 1
         on_event('speech_end')
@@ -155,7 +155,7 @@ def test_file_input_runs_exactly_one_turn_without_opening_microphone(monkeypatch
             report.emit('agent_start', turn_id=turn_id)
             report.emit('agent_end', turn_id=turn_id, text='Gotowe')
             return 'Gotowe'
-    def read_file(audio_file, stop, on_event):
+    def read_file(audio_file, stop, on_event, **kwargs):
         assert not calls, 'File must not be read a second time'
         assert audio_file == path
         calls.append(('file', audio_file))

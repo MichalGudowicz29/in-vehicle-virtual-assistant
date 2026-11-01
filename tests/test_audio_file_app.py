@@ -7,8 +7,11 @@ import subprocess
 import sys
 import wave
 
+import pytest
 
-def test_cli_file_turn_finishes_after_response_and_writes_report(tmp_path, music_file):
+
+@pytest.mark.parametrize('asr_model', ['vosk', 'whisper-small'])
+def test_cli_file_turn_finishes_after_response_and_writes_report(tmp_path, music_file, asr_model):
     path = tmp_path / 'speech.wav'
     with wave.open(str(path), 'wb') as audio:
         audio.setnchannels(1)
@@ -23,9 +26,10 @@ import runpy
 import sys
 import pygame
 import asr
+import asr.vosk as vosk
 import voice_worker
 
-wav_path, output, music_file = sys.argv[1:]
+wav_path, output, music_file, asr_model = sys.argv[1:]
 load = pygame.mixer.music.load
 pygame.mixer.music.load = lambda _path: load(music_file)
 class Recognizer:
@@ -37,11 +41,17 @@ class Recognizer:
         return '{"partial": "włącz"}'
     def FinalResult(self):
         return json.dumps({'text': 'włącz muzykę', 'result': [{'start': .1, 'end': .8}]})
-asr._get_model = lambda: None
-asr.KaldiRecognizer = lambda *args: Recognizer()
+vosk._get_model = lambda: None
+vosk.KaldiRecognizer = lambda *args: Recognizer()
 def forbidden_microphone(*args, **kwargs):
     raise AssertionError('Microphone must not be used')
 asr.listen = forbidden_microphone
+if asr_model != 'vosk':
+    from types import SimpleNamespace
+    from asr import whisper
+    import webrtcvad
+    whisper._get_model = lambda size: SimpleNamespace(transcribe=lambda audio: [SimpleNamespace(text='włącz muzykę')])
+    webrtcvad.Vad = lambda mode: SimpleNamespace(is_speech=lambda pcm, rate: True)
 
 class Assistant:
     def __init__(self, car):
@@ -58,10 +68,10 @@ def speak(text, on_event):
     for event in ['tts_start', 'tts_end', 'audio_start', 'audio_end']:
         on_event(event)
 voice_worker.VoiceWorker._speak_response = staticmethod(speak)
-sys.argv = ['main.py', '--audio-file', wav_path, '--report-dir', output]
+sys.argv = ['main.py', '--audio-file', wav_path, '--report-dir', output, '--asr', asr_model]
 runpy.run_path('main.py', run_name='__main__')
 '''
-    result = subprocess.run([sys.executable, '-c', script, str(path), str(output), str(music_file)],
+    result = subprocess.run([sys.executable, '-c', script, str(path), str(output), str(music_file), asr_model],
                             env={**os.environ, 'QT_QPA_PLATFORM': 'offscreen', 'SDL_AUDIODRIVER': 'dummy'},
                             text=True, capture_output=True, timeout=30)
     assert result.returncode == 0, result.stdout + result.stderr
@@ -69,6 +79,7 @@ runpy.run_path('main.py', run_name='__main__')
     assert len(reports) == 1
     data = json.loads(reports[0].read_text())
     assert data['input_source'] == {'type': 'audiofile', 'path': str(path.resolve())}
+    assert data['models']['asr'].startswith('Vosk' if asr_model == 'vosk' else 'Whisper small')
     assert data['counts'] == {'completed': 1, 'failed': 0, 'interrupted': 0}
     assert data['metrics']['Czas mowy']['mean_s'] > .69
     history = [e for e in data['events'] if e['turn_id'] == 1]
@@ -95,4 +106,12 @@ def test_cli_rejects_report_directory_that_is_a_file(tmp_path):
     assert result.returncode == 2
     assert 'Nie można przygotować folderu raportów' in result.stderr
     assert path.read_text() == 'keep me'
+    assert 'Starting assistant thread' not in result.stdout
+
+
+def test_cli_rejects_unknown_asr_before_starting_application():
+    result = subprocess.run([sys.executable, 'main.py', '--asr', 'whisper-typo'],
+                            text=True, capture_output=True, timeout=20)
+    assert result.returncode == 2
+    assert 'invalid choice' in result.stderr
     assert 'Starting assistant thread' not in result.stdout

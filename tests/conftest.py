@@ -9,6 +9,10 @@ os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("QT_QUICK_BACKEND", "software")
 
+# Test fixtures stay independent of the user's .env and work in CI without it.
+os.environ["OLLAMA_MODEL"] = "test-local-default:2b"
+os.environ["ASR_MODEL"] = "vosk"
+
 
 @pytest.fixture(scope="session")
 def music_file(tmp_path_factory):

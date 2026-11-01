@@ -17,12 +17,18 @@ from voice_worker import VoiceWorker
 from shutdown import ShutdownController
 from session_report import SessionReport
 from session_controls import SessionControls
+from asr import ASR_MODELS, resolve_model
 
 parser = argparse.ArgumentParser(description="Asystent samochodowy: mikrofon lub jedna tura z pliku audio.")
 parser.add_argument("--audio-file", type=Path, help="Plik audio podawany do ASR w naturalnym tempie.")
+parser.add_argument("--asr", choices=ASR_MODELS, help="Jednorazowe nadpisanie ASR_MODEL z .env.")
 parser.add_argument("--report-dir", type=Path, default=Path("logs/sessions"),
                     help="Folder raportów TXT i JSON (domyślnie: logs/sessions).")
 args, qt_args = parser.parse_known_args()
+try:
+    args.asr = resolve_model(args.asr)
+except ValueError as error:
+    parser.error(str(error))
 if args.audio_file is not None:
     args.audio_file = args.audio_file.expanduser().resolve()
     if not args.audio_file.is_file():
@@ -36,7 +42,7 @@ except OSError as error:
 app = QApplication([sys.argv[0], *qt_args])
 app.setQuitOnLastWindowClosed(False)
 
-session_report = SessionReport(audio_file=args.audio_file)
+session_report = SessionReport(audio_file=args.audio_file, asr_model=args.asr)
 car = CarSystem()
 session_controls = SessionControls(car, session_report)
 
@@ -44,7 +50,7 @@ session_controls = SessionControls(car, session_report)
 assistant_thread = QThread()
 
 #startowanie VoiceWorker w osobnym wątku
-voice_worker = VoiceWorker(car, report=session_report, audio_file=args.audio_file)
+voice_worker = VoiceWorker(car, report=session_report, audio_file=args.audio_file, asr=args.asr)
 shutdown_controller = ShutdownController(voice_worker.stop_event, report=session_report,
                                          report_directory=args.report_dir)
 
