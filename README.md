@@ -52,6 +52,14 @@ kafelków ani tras z internetu; linia nie odwzorowuje rzeczywistych dróg.
 
 Konfiguracja ChatOllama: [oficjalna dokumentacja](https://docs.langchain.com/oss/python/integrations/chat/ollama).
 
+Prompt w `assistant.py` definiuje agenta jako warstwę wykonawczą: jednoznaczne
+polecenia realizuje bez pytania o zgodę i bez słownego potwierdzenia sukcesu.
+Kontakt z jednym numerem wybiera od razu; przy kilku numerach pyta tylko wtedy,
+gdy użytkownik nie wskazał typu. Komunikat głosowy jest potrzebny przy istotnej
+niejednoznaczności, błędzie albo pytaniu informacyjnym. Pusta odpowiedź końcowa
+kończy turę bez uruchamiania TTS i bez pomiarów syntezy/odtwarzania w raporcie.
+Stosowanie tych reguł przez dany model należy sprawdzać na nagraniach testowych.
+
 # Wybór ASR
 
 Backend wybierasz przez `ASR_MODEL` w tym samym `.env`, w którym ustawiasz LLM.

@@ -172,3 +172,4 @@ yarn-error.log*
 .DS_Store
 Thumbs.db
 docs/superpowers/specs/2026-10-27-session-report-design.md
+AGENTS.md

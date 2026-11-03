@@ -234,3 +234,34 @@ def test_unavailable_ollama_prints_actionable_message_and_records_failed_turn(mo
     assert data['counts']['failed'] == 1
     error = next(e for e in data['events'] if e['type'] == 'session_error')
     assert error['error'] == message.strip()
+
+
+def test_silent_completion_records_turn_without_invoking_tts(monkeypatch, tmp_path):
+    from session_report import SessionReport
+    path = tmp_path / 'Telefon.mp3'
+    report = SessionReport(audio_file=path)
+    class Assistant:
+        def __init__(self, car):
+            pass
+        def handle_text(self, text, *, report, turn_id):
+            report.emit('agent_start', turn_id=turn_id)
+            report.emit('agent_end', turn_id=turn_id, success=True, text='')
+            return ''
+    def listen_file(path, stop, *, on_event, **kwargs):
+        on_event('speech_start')
+        on_event('speech_end')
+        on_event('transcription_ready', text='Zadzwoń do Roberta Lewandowskiego')
+        return 'Zadzwoń do Roberta Lewandowskiego'
+    def unexpected_speech(*args, **kwargs):
+        raise AssertionError('Silent completion must not synthesize or play audio')
+    monkeypatch.setattr('voice_worker.Assistant', Assistant)
+    monkeypatch.setattr('asr.listen_file', listen_file)
+    worker = VoiceWorker(None, report=report, audio_file=path)
+    monkeypatch.setattr(worker, '_speak_response', unexpected_speech)
+    worker.run()
+    data = report.snapshot()
+    assert data['counts']['completed'] == 1
+    assert data['events'][-1]['type'] == 'turn_end'
+    assert next(e for e in data['events'] if e['type'] == 'agent_end')['text'] == ''
+    assert 'Synteza TTS' not in data['metrics']
+    assert 'Odtwarzanie' not in data['metrics']
