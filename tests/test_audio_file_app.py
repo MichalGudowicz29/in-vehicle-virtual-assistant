@@ -11,7 +11,8 @@ import pytest
 
 
 @pytest.mark.parametrize('asr_model', ['vosk', 'whisper-small'])
-def test_cli_file_turn_finishes_after_response_and_writes_report(tmp_path, music_file, asr_model):
+@pytest.mark.parametrize('experiment', [False, True])
+def test_cli_file_turn_finishes_after_response_and_writes_report(tmp_path, music_file, asr_model, experiment):
     path = tmp_path / 'speech.wav'
     with wave.open(str(path), 'wb') as audio:
         audio.setnchannels(1)
@@ -28,8 +29,19 @@ import pygame
 import asr
 import asr.vosk as vosk
 import voice_worker
+import session_controls
 
-wav_path, output, music_file, asr_model = sys.argv[1:]
+wav_path, output, music_file, asr_model, experiment = sys.argv[1:]
+OriginalControls = session_controls.SessionControls
+class Controls(OriginalControls):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        assert self.touchEnabled is (experiment != 'True')
+        if experiment == 'True':
+            checkpoints = list(Path(output).glob('session_*.json'))
+            assert len(checkpoints) == 1
+            assert json.loads(checkpoints[0].read_text())['ended_at'] is None
+session_controls.SessionControls = Controls
 load = pygame.mixer.music.load
 pygame.mixer.music.load = lambda _path: load(music_file)
 class Recognizer:
@@ -69,9 +81,11 @@ def speak(text, on_event):
         on_event(event)
 voice_worker.VoiceWorker._speak_response = staticmethod(speak)
 sys.argv = ['main.py', '--audio-file', wav_path, '--report-dir', output, '--asr', asr_model]
+if experiment == 'True':
+    sys.argv.append('--experiment')
 runpy.run_path('main.py', run_name='__main__')
 '''
-    result = subprocess.run([sys.executable, '-c', script, str(path), str(output), str(music_file), asr_model],
+    result = subprocess.run([sys.executable, '-c', script, str(path), str(output), str(music_file), asr_model, str(experiment)],
                             env={**os.environ, 'QT_QPA_PLATFORM': 'offscreen', 'SDL_AUDIODRIVER': 'dummy'},
                             text=True, capture_output=True, timeout=30)
     assert result.returncode == 0, result.stdout + result.stderr
@@ -114,4 +128,12 @@ def test_cli_rejects_unknown_asr_before_starting_application():
                             text=True, capture_output=True, timeout=20)
     assert result.returncode == 2
     assert 'invalid choice' in result.stderr
+    assert 'Starting assistant thread' not in result.stdout
+
+
+def test_experiment_mode_requires_audio_file_before_starting_application():
+    result = subprocess.run([sys.executable, 'main.py', '--experiment'],
+                            text=True, capture_output=True, timeout=20)
+    assert result.returncode == 2
+    assert '--audio-file' in result.stderr
     assert 'Starting assistant thread' not in result.stdout

@@ -56,6 +56,40 @@ def test_report_save_error_does_not_block_shutdown(monkeypatch, tmp_path):
     assert finished == [True]
 
 
+def test_shutdown_saves_actual_final_application_state(tmp_path):
+    import json
+    from CarSystem.car_system import CarSystem
+    from session_report import SessionReport
+    car = CarSystem()
+    car.music.select_track('Christmas Eve')
+    car.contacts.call_contact('Robert Lewandowski', 'mobile')
+    car.navigation.set_destination('ul. Żołnierska 47, Szczecin')
+    report = SessionReport()
+    controller = ShutdownController(Event(), report=report, report_directory=tmp_path, car=car)
+    controller.finish()
+    path, = tmp_path.glob('*.json')
+    data = json.loads(path.read_text())
+    event, = [event for event in data['events'] if event['type'] == 'app_state']
+    assert event['state'] == {
+        'music': {'title': 'Christmas Eve', 'is_playing': True},
+        'contacts': {'name': 'Robert Lewandowski', 'is_calling': True},
+        'navigation': {'destination': 'ul. Żołnierska 47, Szczecin', 'stops': []},
+    }
+    assert 'Stan końcowy aplikacji' in path.with_suffix('.txt').read_text()
+
+
+def test_final_state_capture_failure_does_not_lose_session_report(tmp_path):
+    from types import SimpleNamespace
+    from session_report import SessionReport
+    report = SessionReport()
+    report.emit('session_error', error='original error')
+    controller = ShutdownController(Event(), report=report, report_directory=tmp_path,
+                                    car=SimpleNamespace(music=None))
+    controller.finish()
+    path, = tmp_path.glob('*.json')
+    assert 'original error' in path.read_text()
+
+
 def test_custom_report_directory_keeps_ten_runs_separate(monkeypatch, tmp_path):
     import json
     from session_report import SessionReport

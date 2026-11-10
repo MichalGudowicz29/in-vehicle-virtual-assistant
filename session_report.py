@@ -15,11 +15,13 @@ from asr import model_label, resolve_model
 
 
 PAIRS = {
+    'ASR total': ('speech_start', 'transcription_ready'),
     'Czas mowy': ('speech_start', 'speech_end'),
     'Koniec mowy → transkrypcja': ('speech_end', 'transcription_ready'),
     'Transkrypcja → start agenta': ('transcription_ready', 'agent_start'),
     'Transkrypcja → pierwsze żądanie': ('transcription_ready', 'llm_start'),
     'Łączny czas agenta na turę': ('agent_start', 'agent_end'),
+    'TTS total': ('tts_start', 'audio_end'),
     'Synteza TTS': ('tts_start', 'tts_end'),
     'Koniec agenta → start audio': ('agent_end', 'audio_start'),
     'Koniec mowy → start audio': ('speech_end', 'audio_start'),
@@ -27,6 +29,7 @@ PAIRS = {
     'Cała tura': ('speech_start', 'turn_end'),
 }
 LABELS = {
+    'app_state': 'Stan końcowy aplikacji',
     'speech_detected': 'ASR wykrył wypowiedź',
     'speech_start': 'Początek mowy użytkownika (estymacja ASR)',
     'speech_end': 'Koniec mowy (estymacja ASR)',
@@ -111,6 +114,7 @@ class SessionReport:
         token_totals = {'input_tokens': 0, 'output_tokens': 0, 'total_tokens': 0}
         known_runs = set()
         llm_runs = set()
+        llm_durations = {}
         for event in events:
             kind = event['type']
             run_key = (event['turn_id'], event.get('run_id'))
@@ -125,6 +129,8 @@ class SessionReport:
                              f"Narzędzie: {start['name']}" if kind == 'tool_end' else
                              f"Dotyk: {start['action']}")
                     samples[label].append(event['time_s'] - start['time_s'])
+                    if kind == 'llm_end':
+                        llm_durations[run_key] = event['time_s'] - start['time_s']
             if kind == 'llm_end':
                 llm_runs.add(run_key)
                 usage = event.get('usage')
@@ -132,6 +138,10 @@ class SessionReport:
                     known_runs.add(run_key)
                     for name in ('input_tokens', 'output_tokens', 'total_tokens'):
                         token_totals[name] += usage[name]
+        for turn in turns:
+            requests = {key for key in llm_runs if key[0] == turn['id']}
+            if requests and requests <= llm_durations.keys():
+                samples['LLM total'].append(sum(llm_durations[key] for key in requests))
         tokens = {name: value if known_runs else None for name, value in token_totals.items()}
         tokens['known_requests'] = len(known_runs)
         tokens['missing_requests'] = len(llm_runs - known_runs)
@@ -151,9 +161,9 @@ class SessionReport:
             'tokens': tokens,
         }
 
-    def save(self, directory=Path('logs/sessions')):
+    def save(self, directory=Path('logs/sessions'), *, final=True):
         with self._lock:
-            if self._ended_at is None:
+            if final and self._ended_at is None:
                 for turn in self.turns:
                     if turn['status'] == 'active':
                         self.end_turn(turn['id'], 'interrupted')
@@ -187,7 +197,8 @@ def render_report(data):
     models = data['models']
     lines = [f"SESJA: {data['session_id']}", f"ASR: {models['asr']} | LLM: {models['llm']} | TTS: {models['tts']}",
              f"Wejście: {source_label}",
-             f"Rozpoczęcie: {data['started_at']}", f"Zakończenie: {data['ended_at']}",
+             f"Rozpoczęcie: {data['started_at']}",
+             f"Zakończenie: {data['ended_at'] or 'w toku — raport cząstkowy'}",
              ('Granice mowy: estymacja Vosk, według rozpoznanych słów.'
               if models['asr'].startswith('Vosk') else
               'Granice mowy: estymacja WebRTC VAD, ramki 30 ms; próg ciszy 0,45 s.'),
@@ -213,7 +224,8 @@ def render_report(data):
     lines.append(f"Pokrycie tokenów: {tokens['known_requests']} żądań z danymi / {tokens['missing_requests']} bez danych; suma obejmuje tylko dostępne dane.")
     lines.extend(['', f"{'Pomiar':44} {'N':>5} {'Średnia [s]':>13} {'Min [s]':>10} {'Max [s]':>10}"])
     names = list(PAIRS)
-    names.insert(4, 'Pojedyncze żądanie LLM')
+    names.insert(names.index('Łączny czas agenta na turę'), 'LLM total')
+    names.insert(names.index('LLM total'), 'Pojedyncze żądanie LLM')
     names.extend(name for name in data['metrics'] if name not in names)
     for name in names:
         metric = data['metrics'].get(name)
@@ -221,7 +233,13 @@ def render_report(data):
             lines.append(f"{name:44} {metric['n']:5d} {metric['mean_s']:13.3f} {metric['min_s']:10.3f} {metric['max_s']:10.3f}")
         else:
             lines.append(f'{name:44}     0    brak danych')
-    lines.append('\nCzasy narzędzi mogą się nakładać; ich suma nie jest czasem agenta.\n')
+    lines.extend(['',
+                  'Total w tabeli oznacza czas komponentu na turę.',
+                  'ASR total: początek mowy → gotowa transkrypcja (wlicza czas wypowiedzi).',
+                  'LLM total: suma czasów żądań LLM w turze, bez narzędzi; tylko przy kompletnych parach start/koniec.',
+                  'TTS total: start syntezy → koniec odtwarzania, razem z przerwą przed odtwarzaniem.',
+                  'Total nie obejmuje ładowania modeli przed znacznikiem startu; brak etapu oznacza brak danych.',
+                  'Czasy narzędzi mogą się nakładać; ich suma nie jest czasem agenta.', ''])
     return '\n'.join(lines)
 
 
@@ -252,6 +270,7 @@ def _history_lines(events, origin):
                       ' [OK]' if event['success'] else ' [BŁĄD]')
         lines.append(f"+{event['time_s'] - origin:06.3f}  {label}")
         for key, title in (('text', 'Tekst'), ('arguments', 'Argumenty'),
+                           ('state', 'Stan'),
                            ('tools', 'Wywołaj'), ('screen', 'Ekran'), ('error', 'Błąd'), ('warning', 'Uwaga')):
             if key in event:
                 lines.append(f'         {title}: {json.dumps(event[key], ensure_ascii=False)}')

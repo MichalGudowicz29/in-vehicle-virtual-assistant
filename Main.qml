@@ -11,6 +11,7 @@ ApplicationWindow {
     width: 1280
     height: 720
     title: "Car Assistant"
+    contentItem.enabled: sessionControls.touchEnabled
 
     onClosing: function(close) {
         sessionControls.recordTouch("close_window")

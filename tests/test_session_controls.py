@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pytest
+
 from session_controls import SessionControls
 from session_report import SessionReport
 
@@ -24,7 +26,22 @@ def test_touch_cannot_invoke_arbitrary_attributes():
     assert report.snapshot()['events'][-1]['success'] is False
 
 
-def test_main_qml_loads_and_touch_arguments_cross_qt_boundary(tmp_path, music_file):
+def test_disabled_touch_cannot_change_state_or_add_touch_measurements():
+    from CarSystem.car_system import CarSystem
+    car = CarSystem()
+    report = SessionReport()
+    controls = SessionControls(car, report, touch_enabled=False)
+    assert controls.touchEnabled is False
+    assert controls.performTouch('music', 'next_track', []) is False
+    assert car.music.currentTrackIndex == 0
+    controls.recordTouch('open_music')
+    assert report.snapshot()['events'] == []
+    assert car.music.next_track() is True  # Agent actions bypass touch controls.
+    assert car.music.currentTrackIndex == 1
+
+
+@pytest.mark.parametrize('touch_enabled', [True, False])
+def test_main_qml_loads_and_touch_arguments_cross_qt_boundary(tmp_path, music_file, touch_enabled):
     import os
     import subprocess
     import sys
@@ -34,6 +51,7 @@ import pygame
 from PySide6.QtCore import QUrl
 from PySide6.QtWidgets import QApplication
 from PySide6.QtQml import QQmlApplicationEngine, QQmlComponent
+from PySide6.QtQuick import QQuickItem
 from threading import Event
 from CarSystem.car_system import CarSystem
 from shutdown import ShutdownController
@@ -45,23 +63,25 @@ pygame.mixer.music.load = lambda _path: load(sys.argv[1])
 app = QApplication([])
 car = CarSystem()
 report = SessionReport()
-controls = SessionControls(car, report)
+touch_enabled = sys.argv[2] == 'True'
+controls = SessionControls(car, report, touch_enabled=touch_enabled)
 shutdown = ShutdownController(Event(), report=report)
 engine = QQmlApplicationEngine()
 for name, obj in [('car', car), ('sessionControls', controls), ('shutdownController', shutdown)]:
     engine.rootContext().setContextProperty(name, obj)
 engine.load('Main.qml')
 assert engine.rootObjects()
+assert engine.rootObjects()[0].property('contentItem').isEnabled() is touch_enabled
 component = QQmlComponent(engine)
 component.setData(b'import QtQuick; QtObject { property bool accepted: sessionControls.performTouch("contacts", "call_contact", ["Anna Kowalska", "work"]) }', QUrl())
 assert not component.isError(), [e.toString() for e in component.errors()]
 obj = component.create()
-assert obj is not None and obj.property('accepted') is True
-assert car.contacts.currentContactName == 'Anna Kowalska'
-assert any(e['type'] == 'touch_end' and e['success'] for e in report.events)
+assert obj is not None and obj.property('accepted') is touch_enabled
+assert car.contacts.currentContactName == ('Anna Kowalska' if touch_enabled else '')
+assert any(e['type'] == 'touch_end' and e['success'] for e in report.events) is touch_enabled
 assert any(e['type'] == 'screen_change' and e['screen'] == 'home' for e in report.events)
 print('QML and QVariantList: OK')
 '''
-    result = subprocess.run([sys.executable, '-c', script, str(music_file)], env={**os.environ, 'QT_QPA_PLATFORM': 'offscreen', 'SDL_AUDIODRIVER': 'dummy'}, text=True, capture_output=True, timeout=30)
+    result = subprocess.run([sys.executable, '-c', script, str(music_file), str(touch_enabled)], env={**os.environ, 'QT_QPA_PLATFORM': 'offscreen', 'SDL_AUDIODRIVER': 'dummy'}, text=True, capture_output=True, timeout=30)
     assert result.returncode == 0, result.stdout + result.stderr
     assert 'QML and QVariantList: OK' in result.stdout

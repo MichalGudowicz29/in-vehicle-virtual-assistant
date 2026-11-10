@@ -1,3 +1,5 @@
+import re
+
 import config
 
 from httpx import ConnectError
@@ -66,6 +68,13 @@ Przykłady zachowania (fakty zawsze sprawdzaj w aktualnych wynikach narzędzi):
 - call_contact zwraca success=false: krótko „Nie udało się rozpocząć połączenia”.
   Nie deklaruj połączenia i nie próbuj automatycznie innego numeru.
 """
+
+
+def _format_address(street: str, city: str, number: str) -> str:
+    street = re.sub(r'^(?:ulica\b|ul(?:\.|\b))\s*', '', street.strip(), flags=re.IGNORECASE)
+    number = number.strip()
+    street = re.sub(rf'\s+{re.escape(number)}$', '', street, flags=re.IGNORECASE)
+    return f'ul. {street} {number}, {city.strip()}'
 
 
 class Assistant:
@@ -197,7 +206,7 @@ class Assistant:
         @tool
         def navigate_to(street: str, city: str, number: str):
             """Ustawia cel nawigacji na podany adres. street, city i number muszą być podane."""
-            address = f"ul. {street} {number}, {city}"
+            address = _format_address(street, city, number)
             return self._execute_graph_action(
                 "navigation",
                 "set_destination",
@@ -207,7 +216,7 @@ class Assistant:
         @tool
         def add_stop(street: str, city: str, number: str):
             """Dodaje przystanek do trasy na podany adres. street, city i number muszą być podane."""
-            address = f"ul. {street} {number}, {city}"
+            address = _format_address(street, city, number)
             return self._execute_graph_action(
                 "navigation",
                 "add_stop",

@@ -9,11 +9,12 @@ class ShutdownController(QObject):
     closingChanged = Signal()
     finished = Signal()
 
-    def __init__(self, stop_event, report=None, report_directory=Path("logs/sessions")):
+    def __init__(self, stop_event, report=None, report_directory=Path("logs/sessions"), *, car=None):
         super().__init__()
         self.stop_event = stop_event
         self.report = report
         self.report_directory = Path(report_directory)
+        self.car = car
         self._closing = False
         self.started_at = datetime.now().astimezone()
         self.started_timer = perf_counter()
@@ -34,6 +35,19 @@ class ShutdownController(QObject):
     @Slot()
     def finish(self):
         if self.report is not None:
+            if self.car is not None:
+                try:
+                    music = self.car.music
+                    self.report.emit('app_state', state={
+                        'music': {'title': music.tracks[music.currentTrackIndex]['title'],
+                                  'is_playing': music.isPlaying},
+                        'contacts': {'name': self.car.contacts.currentContactName,
+                                     'is_calling': self.car.contacts.isCalling},
+                        'navigation': {'destination': self.car.navigation.destination,
+                                       'stops': self.car.navigation.stops},
+                    })
+                except Exception as error:
+                    print(f"Nie udało się odczytać stanu końcowego: {error}", flush=True)
             try:
                 for path in self.report.save(self.report_directory):
                     print(f"Raport: {path.resolve()}", flush=True)

@@ -2,7 +2,7 @@
 
 from uuid import uuid4
 
-from PySide6.QtCore import QObject, Slot
+from PySide6.QtCore import QObject, Property, Slot
 
 
 ACTIONS = {
@@ -13,14 +13,20 @@ ACTIONS = {
 
 
 class SessionControls(QObject):
-    def __init__(self, car, report):
+    def __init__(self, car, report, *, touch_enabled=True):
         super().__init__()
         self.car = car
         self.report = report
+        self._touch_enabled = touch_enabled
+
+    @Property(bool, constant=True)
+    def touchEnabled(self):
+        return self._touch_enabled
 
     @Slot(str)
     def recordTouch(self, action):
-        self.report.emit('touch', action=action)
+        if self._touch_enabled:
+            self.report.emit('touch', action=action)
 
     @Slot(str)
     def recordScreen(self, screen):
@@ -28,6 +34,8 @@ class SessionControls(QObject):
 
     @Slot(str, str, 'QVariantList', result=bool)
     def performTouch(self, domain, action, args):
+        if not self._touch_enabled:
+            return False
         run_id = uuid4().hex
         name = f'{domain}.{action}'
         self.report.emit('touch_start', run_id=run_id, action=name, arguments=args)

@@ -35,6 +35,10 @@ def test_report_measures_turns_requests_tools_and_partial_token_coverage(monkeyp
     assert data['metrics']['Pojedyncze żądanie LLM']['mean_s'] == pytest.approx(.6925)
     assert data['metrics']['Narzędzie: get_contacts']['mean_s'] == pytest.approx(.03)
     assert data['metrics']['Cała tura']['mean_s'] == pytest.approx(5.8)
+    for label, seconds in [('ASR total', 2.45), ('LLM total', 1.385), ('TTS total', 1.88)]:
+        assert data['metrics'][label]['n'] == 1
+        assert data['metrics'][label]['mean_s'] == pytest.approx(seconds)
+        assert label in text_path.read_text()
     assert data['tokens'] == {'input_tokens': 10, 'output_tokens': 2, 'total_tokens': 12, 'known_requests': 1, 'missing_requests': 1}
     text = text_path.read_text()
     for expected in ['ASR: Vosk', f"LLM: {data['models']['llm']}", 'TTS: Supertonic', 'TURA 1', '+02.450', 'Zadzwoń do Anny', 'get_contacts [OK]', 'Mobilny czy służbowy?', 'STATYSTYKI SESJI', 'estymacja Vosk']:
@@ -51,7 +55,47 @@ def test_missing_timings_are_not_zero_and_open_turn_is_interrupted(tmp_path):
     assert data['counts']['interrupted'] == 1
     assert 'Czas mowy' not in data['metrics']
     assert 'Pojedyncze żądanie LLM' not in data['metrics']
+    for label in ('ASR total', 'LLM total', 'TTS total'):
+        assert label not in data['metrics']
     assert data['tokens']['missing_requests'] == 1
+
+
+def test_checkpoint_keeps_turn_active_and_final_save_includes_later_events(monkeypatch, tmp_path):
+    monkeypatch.setattr('session_report.perf_counter', lambda: 100)
+    report = SessionReport()
+    turn = report.begin_turn()
+    report.emit('speech_start', turn_id=turn, at=100)
+    report.emit('transcription_ready', turn_id=turn, at=102, text='test')
+    txt, path = report.save(tmp_path, final=False)
+    checkpoint = json.loads(path.read_text())
+    assert checkpoint['ended_at'] is None
+    assert checkpoint['turns'] == [{'id': turn, 'status': 'active'}]
+    assert checkpoint['metrics']['ASR total']['mean_s'] == 2
+    assert 'Cała tura' not in checkpoint['metrics']
+    assert 'raport cząstkowy' in txt.read_text()
+    report.emit('agent_start', turn_id=turn, at=102)
+    report.emit('agent_end', turn_id=turn, at=103)
+    monkeypatch.setattr('session_report.perf_counter', lambda: 104)
+    report.end_turn(turn, 'completed')
+    report.save(tmp_path)
+    final = json.loads(path.read_text())
+    assert final['ended_at'] is not None
+    assert final['counts']['completed'] == 1
+    assert final['metrics']['Cała tura']['mean_s'] == 4
+    assert final['duration_s'] == 4
+
+
+def test_llm_total_is_per_turn_and_excludes_incomplete_request_sequences():
+    report = SessionReport()
+    for seconds, incomplete in [(2, False), (4, False), (10, True)]:
+        turn = report.begin_turn()
+        report.emit('llm_start', turn_id=turn, at=100, run_id='same-id-across-turns')
+        report.emit('llm_end', turn_id=turn, at=100 + seconds, run_id='same-id-across-turns')
+        if incomplete:
+            report.emit('llm_start', turn_id=turn, at=120, run_id='unfinished')
+    assert report.snapshot()['metrics']['LLM total'] == {
+        'n': 2, 'mean_s': 3, 'min_s': 2, 'max_s': 4,
+    }
 
 
 def test_overlapping_tools_are_paired_by_run_id_and_writes_are_thread_safe(monkeypatch):

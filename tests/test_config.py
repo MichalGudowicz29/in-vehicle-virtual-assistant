@@ -18,7 +18,7 @@ def run_with_config(project, working_directory, script):
                           env=environment, text=True, capture_output=True, timeout=20)
 
 
-def test_editing_one_env_file_updates_models_in_all_consumers(tmp_path):
+def test_editing_one_env_file_updates_models_in_application_consumers(tmp_path):
     project = tmp_path / 'project'
     project.mkdir()
     (project / 'config.py').write_text((ROOT / 'config.py').read_text())
@@ -29,14 +29,12 @@ def test_editing_one_env_file_updates_models_in_all_consumers(tmp_path):
 import json
 import config
 import asr
-import runner
 from session_report import SessionReport
 from voice_worker import VoiceWorker
 report = SessionReport()
 worker = VoiceWorker(None, report=report)
 print(json.dumps(dict(llm=config.OLLAMA_MODEL, asr=asr.resolve_model(),
-                     worker_asr=worker.asr, runner_llm=runner.config.OLLAMA_MODEL,
-                     runner_asr=runner.resolve_model(), models=report.snapshot()['models'])))
+                     worker_asr=worker.asr, models=report.snapshot()['models'])))
 '''
     for llm, asr, label in [('local-one:2b', 'whisper-small', 'Whisper small (whisper.cpp)'),
                             ('local-two:4b', 'whisper-medium', 'Whisper medium (whisper.cpp)')]:
@@ -44,8 +42,8 @@ print(json.dumps(dict(llm=config.OLLAMA_MODEL, asr=asr.resolve_model(),
         result = run_with_config(project, working_directory, script)
         assert result.returncode == 0, result.stderr
         data = json.loads(result.stdout.splitlines()[-1])
-        assert data == dict(llm=llm, asr=asr, worker_asr=asr, runner_llm=llm,
-                            runner_asr=asr, models=dict(llm=llm, asr=label, tts='Supertonic'))
+        assert data == dict(llm=llm, asr=asr, worker_asr=asr,
+                            models=dict(llm=llm, asr=label, tts='Supertonic'))
 
 
 @pytest.mark.parametrize('contents, missing', [

@@ -85,7 +85,7 @@ i zgłasza brak wag przed rozpoczęciem nasłuchu. Nie pobiera modelu podczas se
 
 ```bash
 uv run python main.py \
-  --audio-file assets/voice/Telefon.mp3 \
+  --audio-file assets/voice/Telefon/1.mp3 \
   --report-dir logs/eksperymenty/Konfiguracja1_Zadanie2
 ```
 
@@ -133,6 +133,11 @@ START NAVIGATION lub DODAJ wykonuje akcję. Numery domów są porównywane
 w całości (`47` nie pasuje do `147`). Niejednoznaczny adres wymaga wyboru
 lub doprecyzowania. Te same reguły wyszukiwania obowiązują narzędzia głosowe.
 Wyszukiwanie korzysta z lokalnej bazy; nie poprawia literówek.
+Narzędzia `navigate_to` i `add_stop` składają adres we wspólnej funkcji:
+`Żołnierska`, `ul. Żołnierska` i `ulica Żołnierska` dostają dokładnie jeden
+prefiks `ul.`. Jeśli pole ulicy kończy się już podanym osobno numerem domu,
+numer nie jest powtarzany. Sprzeczne numery, np. ulica z `147` i osobne `47`,
+nie są automatycznie zamieniane na wybrany adres.
 
 # Raport sesji
 
@@ -143,8 +148,30 @@ rozpoczętą odpowiedź i zapisuje w `logs/sessions/` dwa pliki o wspólnym ID:
   statystyki N / średnia / min / max w sekundach.
 - `session_….json` — te same zdarzenia i obliczenia do późniejszej analizy.
 
+W trybie `--experiment` aplikacja dodatkowo zapisuje raport początkowy przed
+inicjalizacją kontrolerów i odświeża go co 5 s przez timer Qt. Zapis cząstkowy
+nie kończy aktywnej tury ani nie zamraża czasów. TXT pokazuje „w toku — raport
+cząstkowy”, JSON ma `ended_at: null`. Normalne zakończenie zastępuje te same
+pliki pełnym raportem. Pliki są podmieniane atomowo osobno dla TXT i JSON.
+Po przymusowym zakończeniu pozostaje ostatnia udana kopia, z dostępnymi
+pomiarami; brakujących etapów nie zastępuje się zerami. Odświeżanie wymaga
+działającej pętli Qt — zawieszenie GUI może zatrzymać kolejne zapisy.
+
 Każda tura głosowa zawiera transkrypcję, wywołania LLM i narzędzi, ich
 czasy i wyniki, odpowiedź oraz osobne etapy syntezy i odtwarzania TTS.
+Statystyki raportu i summary runnera zawierają też czasy komponentów na turę:
+
+- `ASR total`: od początku mowy do gotowej transkrypcji, wliczając wypowiedź.
+- `LLM total`: suma czasów wszystkich żądań LLM w turze, bez narzędzi.
+  Czas agenta z narzędziami pozostaje osobną metryką. Niepełne pary start/koniec
+  żądań wykluczają turę z tej sumy.
+- `TTS total`: od startu syntezy do końca odtwarzania, wliczając przerwę
+  przed odtwarzaniem. Synteza i odtwarzanie są także pokazywane osobno.
+
+Ładowanie modeli przed znacznikami startu nie wchodzi do tych czasów.
+Brak etapu (np. brak odpowiedzi głosowej po sukcesie) oznacza brak pomiaru,
+a nie zero. Tabela podaje N / średnią / min / max dla zmierzonych tur.
+
 Zdarzenie `tool_end` przechowuje pełną zwróconą treść w polu `output` oraz
 `tool_call_id`, jeśli udostępni je LangChain. Dla `ToolMessage` jest to jego
 `content`, czyli treść zwracana modelowi, bez dodatkowych artefaktów narzędzia.
@@ -195,14 +222,14 @@ biblioteki PortAudio i Qt, których samo `uv sync` nie dostarcza.
 # Jedna tura z pliku audio
 
 ```bash
-uv run python main.py --audio-file assets/voice/Telefon.mp3
+uv run python main.py --audio-file assets/voice/Telefon/1.mp3
 ```
 
 Folder wyników można wskazać parametrem `--report-dir`, także w trybie mikrofonu:
 
 ```bash
 uv run python main.py \
-  --audio-file assets/voice/Telefon.mp3 \
+  --audio-file assets/voice/Telefon/1.mp3 \
   --report-dir logs/eksperymenty/Konfiguracja1_Zadanie2
 ```
 
@@ -240,56 +267,170 @@ Przy zamykaniu przed wykryciem mowy wejście zostaje przerwane; po wykryciu
 mowy aplikacja kończy rozpoczętą wypowiedź i odpowiedź, tak jak rozpoczętą turę
 mikrofonową. Ten tryb służy pojedynczym krótkim wypowiedziom.
 
-# Runner — zadanie 1, telefon, trzy próby
+# Runner — końcowa seria A–D
 
 ```bash
 uv run python runner.py
 ```
 
-W tym runnerze **Zadanie1** oznacza nagranie `assets/voice/Telefon.mp3` i polecenie
-zadzwonienia do Roberta Lewandowskiego. Program wykonuje trzy próby kolejno,
-na `ASR_MODEL` i `OLLAMA_MODEL` odczytanych z `.env` na początku eksperymentu.
-Żeby zmienić konfigurację eksperymentu, edytuj tylko te dwie wartości w `.env`
-i uruchom runner ponownie. Wszystkie trzy próby korzystają z tego samego wyboru.
+Runner jest samodzielnym skryptem korzystającym z biblioteki standardowej.
+Uruchamia `main.py` w osobnych procesach, przekazując `--asr`, `--audio-file`,
+`--report-dir`, `--experiment` oraz zmienne `ASR_MODEL` i `OLLAMA_MODEL` w środowisku dziecka.
+Nie importuje aplikacji, nie modyfikuje jej kodu ani `.env`. Wartości modeli w
+`.env` nie wybierają wariantu eksperymentu; macierz jest stała:
 
-W `logs/eksperymenty/` powstaje nowy folder `<ASR>_<LLM>_Zadanie1_<czas>_<id>`.
-Zawiera `config.txt` z modelami, nagraniem, liczbą powtórzeń, limitem czasu i
-oczekiwanym efektem; `summary.txt` i `summary.json` przechowują wyniki wszystkich
-prób. W podfolderach `run_01`, `run_02`, `run_03` znajdują się oryginalne raporty
-sesji TXT/JSON oraz `console.log`. Kolejny eksperyment tworzy nowy folder.
+| Wariant | ASR_MODEL | OLLAMA_MODEL |
+| --- | --- | --- |
+| A | vosk | qwen3.5:2b |
+| B | whisper-small | qwen3.5:2b |
+| C | vosk | qwen3.5:4b |
+| D | whisper-small | qwen3.5:4b |
 
-`summary.txt` zawiera najpierw osobny blok każdego runa: ocenę zadania i jej powód,
-czas sesji, wszystkie pomiary etapów N/średnia/min/max oraz tokeny. Po ostatnim
-runie znajduje się sekcja średnich ze wszystkich dostępnych raportów, także prób
-nieudanych, oraz success rate. Brak pomiaru nie jest traktowany jak zero;
-kolumny N i Próby pokazują pokrycie danych. Średnie czasów pojedynczych żądań LLM
-i narzędzi są ważone ich liczbą N, nie liczone jako średnia ze średnich runów.
-Zużycie tokenów jest uśredniane na próbę z dostępnymi danymi; raport podaje też
-liczbę żądań z i bez danych o tokenach.
+TTS pozostaje Supertonic. Wcześniej przygotuj oba modele ASR i oba modele LLM,
+uruchom Ollamę i zapewnij pamięć potrzebną całej aplikacji. Runner nie pobiera
+modeli ani nie zmienia ustawień generacji, promptu lub limitu kroków agenta.
 
-Success rate to odsetek sukcesów wśród zakończonych prób; błędy i timeouty
-wchodzą do mianownika. Podczas eksperymentu niezrealizowane jeszcze powtórzenia
-nie są liczone jako porażki. Best/worst run oznaczają najkrótszą/najdłuższą
-pełną turę wśród prób z sukcesem zadania i dostępnym pomiarem „Cała tura”.
-Gdy żadna próba nie spełnia tych warunków, ranking pokazuje brak danych.
-`summary.json` zachowuje pomiary i tokeny w każdym elemencie `runs`, a statystyki
-zbiorcze w `statistics`, `success_rate_percent`, `best_run` i `worst_run`.
+## Nagrania i kolejność
 
-Oczekiwany efekt to dokładnie jedno wywołanie
-`call_contact(name="Robert Lewandowski", number_type="mobile")`. Parametry muszą
-być zgodne z oczekiwaniem, a odpowiadający mu `tool_end` musi mieć `success=True`
-i należeć do tego samego `run_id` i tej samej zakończonej tury. Sesja z błędem,
-przerwaną turą, powtórzonym połączeniem, innym kontaktem lub numerem nie przechodzi
-oceny. Samo `get_contacts`, pytanie doprecyzowujące lub deklaracja sukcesu przez
-LLM nie wystarczają. To ocena wykonanej akcji w aplikacji, bez prawdziwego połączenia
-telefonicznego z siecią komórkową.
+W każdym katalogu zadania są **dokładnie trzy niepuste pliki `1.mp3`, `2.mp3`,
+`3.mp3`**. Numery odpowiadają Audio 1, 2, 3 z notatek użytkownika.
+Brak katalogu, inne nazwy lub liczba plików, albo pusty plik kończą runner kodem 2, przed
+utworzeniem serii i uruchomieniem jakiegokolwiek procesu aplikacji.
 
-Każda próba uruchamia nowy proces aplikacji, więc historia rozmowy i stan HMI
-zaczynają się od nowa. Ollama nie jest restartowana ani wymuszenie rozgrzewana:
-pierwsza próba może obejmować ładowanie LLM, a kolejne korzystać z modelu w pamięci.
-Runner działa z normalnym UI i odtwarzaniem TTS. Limit wynosi 300 s na próbę;
-po błędzie lub przekroczeniu limitu zapisuje niepowodzenie i wykonuje kolejne próby.
-Podsumowanie jest aktualizowane po każdej próbie. Kod zakończenia runnera to
-`0` dla trzech sukcesów, `1` dla co najmniej jednego niepowodzenia i `2` dla braku
-nagrania. Wynik oceny znajduje się w podsumowaniu eksperymentu; oryginalny status
-tury w raporcie sesji nie jest zmieniany.
+| Zadanie | Katalog | Oczekiwany efekt wszystkich trzech wypowiedzi |
+| --- | --- | --- |
+| 1 — Muzyka | `assets/voice/Muzyka/` | Odtwarzanie Christmas Eve, czyli `music/1.mp3`. |
+| 2 — Telefon | `assets/voice/Telefon/` | Jedno połączenie z Robertem Lewandowskim, numer mobilny. |
+| 3 — Nawigacja | `assets/voice/Nawigacja/` | Cel ul. Żołnierska 47, Szczecin, bez przystanków. |
+
+| Zadanie | Audio 1 — polecenie wprost | Audio 2 — naturalna parafraza | Audio 3 — polecenie nie wprost |
+| --- | --- | --- | --- |
+| Muzyka | Włącz piosenkę Christmas Eve | Włącz Christmas Eve, święta już blisko | Włącz jakąś muzykę, chcę poczuć klimat świąt |
+| Telefon | Zadzwoń do Roberta Lewandowskiego | Połącz mnie z Robertem Lewandowskim, musze mu coś powiedzieć | Zadzwoń do pierwszego mężczyzny jakiego mam w kontaktach |
+| Nawigacja | Ustaw cel nawigacji na ulicę Żołnierska 47 w Szczecinie | Jedziemy na ulicę Żołnierską 47 | Potrzebuje dojechać na Żołnierską, tam gdzie zawsze. |
+
+To deklarowane treści i typy nagrań, zapisane w runnerze jako metadane,
+bez weryfikacji zgodności z dźwiękiem. Nie są podawane ASR ani LLM jako
+podpowiedzi i nie zastępują faktycznej transkrypcji. Nie są zwalidowanymi
+poziomami trudności: dla telefonu Audio 3 wymaga interpretacji imienia i
+kolejności kontaktów (Robert jest pierwszy; baza nie ma pola płci).
+Nawigacja Audio 2 nie podaje miasta, a Audio 3 także numeru. Baza ma jeden
+adres przy Żołnierskiej — 47 w Szczecinie — dostępny przez get_places_list,
+ale aplikacja nie ma historii miejsc „tam gdzie zawsze”. Pytanie o
+doprecyzowanie bez wykonania nadal oznacza niewykonanie zadania w jednej turze;
+samo w sobie nie dowodzi błędnego zachowania asystenta.
+
+Kolejność: A, B, C, D. Każdy wariant wykonuje zadania 1, 2, 3; w każdym zadaniu
+najpierw trzy powtórzenia nagrania 1, następnie nagrania 2 i 3.
+Łącznie **4 × 3 × 3 × 3 = 108 ocenianych prób**.
+
+Przed zadaniami każdego wariantu odbywa się jedna dodatkowa próba rozgrzewająca
+z pierwszym nagraniem muzyki. Jej raporty i wynik trafiają do `warmup/`; nie
+wchodzą do 108 prób, success rate, średnich ani rankingu zadań. Łącznie aplikacja
+jest więc wywoływana 112 razy. Niepowodzenie rozgrzewania jest widoczne w konsoli
+i `warmup/summary.json`; runner nadal wykonuje zadania i kolejne warianty.
+Ollama nie jest restartowana. Rozgrzewanie nie gwarantuje braku późniejszego
+wyładowania modelu lub wpływu temperatury/pamięci na czasy.
+Dotyczy przede wszystkim LLM utrzymywanego przez Ollamę; ASR i TTS są ponownie
+inicjalizowane w każdym nowym procesie aplikacji.
+
+Każda próba uruchamia nowy proces, z domyślnym stanem HMI i nową historią rozmowy.
+Tryb `--experiment` jest włączony także podczas rozgrzewania. Wymaga
+`--audio-file`, więc mikrofon nie jest otwierany. Cała zawartość okna jest
+nieaktywna dla użytkownika (dotyk, mysz i klawiatura), a metody obsługujące dotyk
+odrzucają akcje i nie zapisują pomiarów dotyku. Agent nadal steruje kontrolerami,
+ekrany mogą się aktualizować, a TTS i muzyka działają normalnie. Przycisk
+„Zakończ” w oknie także jest nieaktywny; do przerwania serii służy Ctrl+C
+w terminalu. Systemowe zamknięcie okna nadal może zakończyć bieżącą próbę.
+Zwykłe uruchomienie aplikacji bez `--experiment` zachowuje obsługę dotykową
+i mikrofonową; samo `--audio-file` nie blokuje dotyku.
+
+Aplikacja nie udostępnia parametru wyboru utworu początkowego. Runner go nie
+zmienia: Christmas Eve jest początkowo wybrany i wstrzymany. Ta seria sprawdza
+uruchomienie właściwego pliku, lecz nie dowodzi wyboru utworu z innego stanu.
+Numeracja zadań jest zgodna z dokumentacją ewaluacji i Excelem.
+
+## Wyniki
+
+Każde uruchomienie tworzy nowy katalog, zachowując poprzednie serie:
+
+```text
+logs/eksperymenty/seria_ABCD_<data>_<czas>_<mikrosekundy>/
+  config.json
+  A_vosk_qwen3.5_2b/
+    warmup/                  # raporty sesji, console.log, summary.json
+    zad1_Muzyka/
+      config.txt
+      summary.json
+      summary.txt
+      recording_01/
+        run_01/              # raporty sesji TXT/JSON, console.log i result.json
+        run_02/
+        run_03/
+      recording_02/
+      recording_03/
+    zad2_Telefon/
+    zad3_Nawigacja/
+  B_whisper-small_qwen3.5_2b/
+  C_vosk_qwen3.5_4b/
+  D_whisper-small_qwen3.5_4b/
+```
+
+`config.json` zapisuje macierz, liczbę prób, limit czasu i listę wejściowych
+plików z SHA-256, numerami audio, typami i deklarowanymi treściami poleceń.
+`config.txt` każdego zadania zawiera wariant, modele, pliki, typy, treści i
+oczekiwany efekt. Każde zadanie ma dziewięć ocenianych prób. W `runs` znajdują
+się osobno `recording`, `recording_type`, `prompt_text`, `repetition`,
+`audio_file` i numer `run` 1–9. TXT również pokazuje numer, typ i treść
+polecenia przy każdej próbie. Summary zadania nadal łączy jego dziewięć prób;
+numer i typ audio pozwalają rozdzielić je w dalszej analizie.
+Podsumowania są aktualizowane po każdej próbie.
+`result.json` w każdym folderze próby (także warmup) zapisuje wynik procesu,
+ocenę zadania i dostępne pomiary również wtedy, gdy aplikacja nie utworzyła
+raportu sesji. Flaga `report_complete` ma wartość true dla raportu końcowego,
+false dla cząstkowego i null, gdy brak poprawnego raportu. Logi Pythona są
+niebuforowane (`PYTHONUNBUFFERED=1`), więc widoczny jest postęp przed timeoutem.
+Nie oznacza to usunięcia przyczyny ewentualnego zawieszenia.
+
+`summary.txt` zawiera wyniki kolejnych prób, czasy etapów N/średnia/min/max,
+tokeny, statystyki zbiorcze, success rate i best/worst run. Statystyki obejmują
+wszystkie dostępne pomiary, także z prób nieudanych; brak nie jest zerem.
+Średnie pojedynczych żądań LLM i narzędzi są ważone liczbą pomiarów N.
+Best/worst to czas pełnej tury wśród poprawnie zakończonych prób.
+
+## Ocena zadania i procesu
+
+Ocena wymaga jednej poprawnie zakończonej tury, braku błędu sesji, właściwych
+wywołań narzędzi i ich potwierdzeń `tool_end` z `success=True`, tym samym `run_id`
+i `turn_id`, a także właściwego końcowego `app_state`:
+
+- Muzyka: `select_track` lub `play_pause`, końcowo Christmas Eve i `is_playing=True`.
+- Telefon: dokładnie jedno `call_contact(name="Robert Lewandowski", number_type="mobile")`
+  i aktywne połączenie z tym kontaktem.
+- Nawigacja: dokładnie jedno `navigate_to`, właściwy kanoniczny cel i brak przystanków.
+
+To ocena stanu prototypu, bez potwierdzenia rzeczywistego połączenia, trasy drogowej
+lub akustycznego odtwarzania. Nie ocenia wszystkich niezamówionych operacji poza
+badaną funkcją. Samo pobranie listy, deklaracja LLM lub status completed nie wystarcza.
+
+Limit każdej próby, w tym rozgrzewania, wynosi 300 s. Po błędzie lub timeout
+runner zapisuje wynik i kontynuuje. **Po timeout również odczytuje istniejący
+raport**, zamiast tracić zapisany efekt i pomiary. W pojedynczym wyniku:
+
+- `task_success`: ocena zadania z poprawnego raportu; `null`, jeśli nie można ocenić.
+- `timed_out` i `returncode`: wynik wykonania procesu.
+- `report_complete`: czy odczytany raport ma zapisany koniec sesji.
+- `success`: poprawne zadanie oraz wyjście procesu kodem 0 bez timeoutu.
+
+`success_count` i success rate liczą ścisłe sukcesy wśród wykonanych prób;
+błędy i timeouty są w mianowniku. `task_success_count`, `task_assessed_count` i
+`timeout_count` pokazują osobno poprawność efektu, pokrycie oceny i timeouty.
+Jeśli połączenie zostało wykonane, ale proces się zawiesił, `task_success` może
+wynosić true przy `success=false`. Pomiary poprawnego raportu pozostają w summary.
+Oryginalne raporty sesji nie są zmieniane.
+
+Kod zakończenia: `0` dla wszystkich 108 sukcesów i udanego rozgrzewania czterech
+wariantów; `1` dla niepowodzenia którejkolwiek próby lub rozgrzewania;
+`2` dla błędu kompletności nagrań przed startem. Starsze foldery pilotażu
+pozostają bez zmian. Wyniki tej serii dotyczą dziewięciu konkretnych nagrań;
+trzy powtórzenia nie są trzema nowymi wypowiedziami.
