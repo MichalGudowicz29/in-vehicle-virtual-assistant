@@ -3,9 +3,6 @@
 from pathlib import Path
 from threading import Event
 
-import config
-
-
 WHISPER_MODELS = {
     'whisper-small': 'small',
     'whisper-medium': 'medium',
@@ -16,6 +13,8 @@ ASR_MODELS = ('vosk', *WHISPER_MODELS)
 
 
 def resolve_model(asr: str | None = None) -> str:
+    import config
+
     name = config.ASR_MODEL if asr is None else asr
     if name not in ASR_MODELS:
         raise ValueError(f"Nieznany ASR: {name!r}. Dostępne: {', '.join(ASR_MODELS)}")

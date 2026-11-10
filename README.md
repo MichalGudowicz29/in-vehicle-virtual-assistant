@@ -19,7 +19,8 @@ Projekt używa Vosk lub whisper.cpp, LangChain/LangGraph, lokalnej Ollamy i Supe
    ```
 
    `config.py` tylko odczytuje te wartości; nie ma własnych nazw zapasowych.
-   Aplikacja, runner i raporty korzystają z tej samej konfiguracji.
+   Aplikacja i jej raporty korzystają z tej konfiguracji. Końcowy runner serii A–D
+   ma własną macierz w `runner.VARIANTS` i przekazuje ją procesom przez środowisko.
    `.env.example` jest wzorem, nie aktywną konfiguracją. Po zmianie `.env`
    uruchom aplikację lub runner ponownie. LLM musi obsługiwać **tool calling**.
    Pobierz model wskazany w konfiguracji:
@@ -97,8 +98,8 @@ i ponownie używany w kolejnych turach; Whisper przechowuje tylko ostatnio wybra
 
 Zaawansowane nadpisania pozostają dostępne: `--asr` zmienia ASR dla pojedynczego
 uruchomienia aplikacji, a jawne zmienne środowiskowe mają pierwszeństwo nad `.env`.
-Runner używa zmiennych procesu do utrwalenia wyboru na wszystkie powtórzenia;
-nie zawiera osobnych nazw modeli do ręcznego zmieniania.
+Runner serii A–D ustawia obie zmienne z `runner.VARIANTS` na wszystkie powtórzenia.
+`prepare_models.py` pobiera modele z tej samej macierzy, więc nie ma drugiej listy do zmieniania.
 
 Whisper używa ciągłego audio mono float32 16 kHz i WebRTC VAD (tryb 2, ramki
 30 ms, zakończenie po 0,45 s ciszy, minimum 90 ms ramek mowy, bufor poprzedzający
@@ -268,6 +269,32 @@ mowy aplikacja kończy rozpoczętą wypowiedź i odpowiedź, tak jak rozpoczęt�
 mikrofonową. Ten tryb służy pojedynczym krótkim wypowiedziom.
 
 # Runner — końcowa seria A–D
+
+Na komputerze z Ubuntu użyj istniejącej instalacji Ollamy i zwykłego środowiska uv:
+
+```bash
+uv sync --locked --python 3.13
+uv run --locked python prepare_models.py
+uv run --locked python prepare_models.py --check
+uv run --locked python runner.py
+```
+
+`prepare_models.py` pobiera LLM i Whisper wskazane w `runner.VARIANTS` oraz
+przygotowuje Supertonic. Ollama musi już działać lokalnie. Skopiuj także
+`assets/voice/`, `music/` i model Vosk — Git pomija pliki MP3. Nie przenoś `.venv`
+z macOS; `uv sync` utworzy środowisko dla Ubuntu.
+
+Przy uruchamianiu przez SSH bez dostępu do ekranu zamień ostatnie polecenie na:
+
+```bash
+QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software uv run --locked python runner.py
+```
+
+To wyłącza wyświetlanie okna, ale nadal wymaga działającego wyjścia audio na tym
+komputerze (pygame i TTS). Dostęp do dźwięku przez SSH zależy od sesji użytkownika;
+nie dodajemy konfiguracji wirtualnych głośników. GPU dla Ollamy sprawdzisz przez
+`ollama ps` podczas działania modelu. Zwykły pakiet pywhispercpp z PyPI używa CPU;
+CUDA dla Ollamy nie włącza automatycznie CUDA dla Whisper.
 
 ```bash
 uv run python runner.py
