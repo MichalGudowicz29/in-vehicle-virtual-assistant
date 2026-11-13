@@ -49,6 +49,7 @@ def test_music_selection_requires_current_library_and_starts_playback():
     assistant.graph = build_graph(car)
     tools = {tool.name: tool for tool in assistant.build_tools()}
     assert tools['select_track'].invoke({'title': 'Chill song'})['success'] is False
+    assert set(tools['select_track'].tool_call_schema.model_json_schema()['properties']) == {'title'}
     assert car.music.currentTrackIndex == 0
     assert car.music.isPlaying is False
     tools['search_track'].invoke({'query': 'Chill'})

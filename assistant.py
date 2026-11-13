@@ -7,10 +7,10 @@ from httpx import ConnectError
 from langchain.agents import create_agent # type: ignore
 from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.config import merge_configs
-from langchain.tools import ToolRuntime, tool # type: ignore
+from langchain.tools import InjectedToolArg, ToolRuntime, tool # type: ignore
 from langgraph.checkpoint.memory import InMemorySaver
 
-from typing import Literal
+from typing import Annotated, Literal
 from langchain_core.messages import AIMessage
 from langchain_ollama import ChatOllama
 from session_callbacks import SessionCallbacks
@@ -174,7 +174,7 @@ class Assistant:
             }
         
         @tool
-        def select_track(title: str, runtime: ToolRuntime = None):
+        def select_track(title: str, runtime: Annotated[ToolRuntime | None, InjectedToolArg] = None):
             """Wybiera i od razu odtwarza utwór. Użyj dokładnego tytułu z get_track_list w tej turze. Po sukcesie nie wywołuj play_pause."""
             # Parallel calls in one response cannot use a library the model has not seen.
             if runtime is not None and any(
