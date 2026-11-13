@@ -61,6 +61,14 @@ niejednoznaczności, błędzie albo pytaniu informacyjnym. Pusta odpowiedź koń
 kończy turę bez uruchamiania TTS i bez pomiarów syntezy/odtwarzania w raporcie.
 Stosowanie tych reguł przez dany model należy sprawdzać na nagraniach testowych.
 
+Przed wyborem muzyki agent pobiera `get_track_list` w bieżącej turze i dopasowuje
+życzenie do dostępnych tytułów i wykonawców. `select_track` odrzuca tytuł, którego
+nie było na tej liście; kontroler dodatkowo sprawdza, czy nadal jest w bibliotece.
+Wybór od razu uruchamia odtwarzanie, więc po sukcesie nie należy wywoływać
+`play_pause` — zatrzymałoby muzykę. Brak dopasowania lub istotna niejednoznaczność
+wymagają krótkiego komunikatu albo pytania. Wznowienie, pauza i przejście do
+następnego/poprzedniego utworu nie wymagają pobrania listy.
+
 # Wybór ASR
 
 Backend wybierasz przez `ASR_MODEL` w tym samym `.env`, w którym ustawiasz LLM.
@@ -372,9 +380,12 @@ w terminalu. Systemowe zamknięcie okna nadal może zakończyć bieżącą prób
 Zwykłe uruchomienie aplikacji bez `--experiment` zachowuje obsługę dotykową
 i mikrofonową; samo `--audio-file` nie blokuje dotyku.
 
-Aplikacja nie udostępnia parametru wyboru utworu początkowego. Runner go nie
-zmienia: Christmas Eve jest początkowo wybrany i wstrzymany. Ta seria sprawdza
-uruchomienie właściwego pliku, lecz nie dowodzi wyboru utworu z innego stanu.
+Tryb `--experiment` zaczyna od wstrzymanego Chill song, zamiast docelowego
+Christmas Eve. Zwykłe uruchomienie nadal zaczyna od wstrzymanego Christmas Eve.
+Ocena muzyki wymaga pobrania biblioteki przed wyborem Christmas Eve dokładnie
+raz i jego odtwarzania na końcu; samo `play_pause` nie zalicza zadania.
+Wcześniejsze serie zaczynały od Christmas Eve i używały łagodniejszego kryterium,
+więc ich wyników nie należy porównywać bez uwzględnienia tej zmiany warunków.
 Numeracja zadań jest zgodna z dokumentacją ewaluacji i Excelem.
 
 ## Wyniki
@@ -431,7 +442,9 @@ Ocena wymaga jednej poprawnie zakończonej tury, braku błędu sesji, właściwy
 wywołań narzędzi i ich potwierdzeń `tool_end` z `success=True`, tym samym `run_id`
 i `turn_id`, a także właściwego końcowego `app_state`:
 
-- Muzyka: `select_track` lub `play_pause`, końcowo Christmas Eve i `is_playing=True`.
+- Muzyka: potwierdzone `get_track_list` zawierające Christmas Eve przed dokładnie
+  jednym `select_track(title="Christmas Eve")`, bez dodatkowych przełączeń muzyki;
+  końcowo Christmas Eve i `is_playing=True`.
 - Telefon: dokładnie jedno `call_contact(name="Robert Lewandowski", number_type="mobile")`
   i aktywne połączenie z tym kontaktem.
 - Nawigacja: dokładnie jedno `navigate_to`, właściwy kanoniczny cel i brak przystanków.

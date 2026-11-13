@@ -7,7 +7,7 @@ from httpx import ConnectError
 from langchain.agents import create_agent # type: ignore
 from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.config import merge_configs
-from langchain.tools import tool # type: ignore
+from langchain.tools import ToolRuntime, tool # type: ignore
 from langgraph.checkpoint.memory import InMemorySaver
 
 from typing import Literal
@@ -67,6 +67,20 @@ Przykłady zachowania (fakty zawsze sprawdzaj w aktualnych wynikach narzędzi):
 - „Następny utwór”. Wywołaj next_track. Wynik success=true: pusta odpowiedź końcowa.
 - call_contact zwraca success=false: krótko „Nie udało się rozpocząć połączenia”.
   Nie deklaruj połączenia i nie próbuj automatycznie innego numeru.
+
+Muzyka:
+1. Aby wybrać utwór, najpierw w bieżącej turze wywołaj get_track_list.
+   Poczekaj na wynik i dopasuj życzenie użytkownika do dostępnych tytułów
+   i wykonawców. Nie wymyślaj tytułu ani nie opieraj wyboru na pamięci listy.
+2. Wywołaj select_track z dokładnym tytułem najlepiej pasującej pozycji
+   ze zwróconej biblioteki. Gdy brak pasującego utworu, zgłoś brak;
+   gdy wybór jest istotnie niejednoznaczny, zadaj jedno krótkie pytanie.
+3. select_track od razu uruchamia odtwarzanie. Po success=true zadanie
+   włączenia tego utworu jest zakończone: zakończ turę bez wypowiedzi.
+   Nie wywołuj potem play_pause, bo zatrzymasz właśnie włączoną muzykę.
+4. play_pause przełącza stan: odtwarza wstrzymany utwór albo pauzuje grający.
+   Używaj go do wznowienia/pauzy, a nie do wyboru utworu według życzenia.
+   Polecenia „następny” i „poprzedni” wykonuj bez pobierania listy.
 """
 
 
@@ -98,11 +112,12 @@ class Assistant:
         
     def build_tools(self):
         car = self.car
+        self._listed_track_titles = set()
 
         # Muzyka
         @tool
         def play_pause():
-            """Włącza lub pauzuje muzykę."""
+            """Przełącza pauzę/odtwarzanie obecnego utworu; po select_track zatrzyma muzykę."""
             return self._execute_graph_action("music", "play_pause", {})
 
         @tool
@@ -120,7 +135,7 @@ class Assistant:
         @tool
         def get_track_list():
             """Zwraca listę dostępnych utworów."""
-            return {
+            result = {
                 "success": True,
                 "tracks": [
                     {
@@ -132,6 +147,8 @@ class Assistant:
                 ],
                 "message": "Retrieved track list successfully.",
             }
+            self._listed_track_titles = {track["title"] for track in result["tracks"]}
+            return result
 
         @tool
         def search_track(query: str):
@@ -157,8 +174,24 @@ class Assistant:
             }
         
         @tool
-        def select_track(title: str):
-            """Wybiera utwór na podstawie tytułu."""
+        def select_track(title: str, runtime: ToolRuntime = None):
+            """Wybiera i od razu odtwarza utwór. Użyj dokładnego tytułu z get_track_list w tej turze. Po sukcesie nie wywołuj play_pause."""
+            # Parallel calls in one response cannot use a library the model has not seen.
+            if runtime is not None and any(
+                call['name'] == 'get_track_list'
+                for call in runtime.state['messages'][-1].tool_calls
+            ):
+                return {
+                    "success": False,
+                    "action": "select_track",
+                    "message": "Poczekaj na wynik get_track_list, a dopiero potem wybierz utwór.",
+                }
+            if title not in self._listed_track_titles:
+                return {
+                    "success": False,
+                    "action": "select_track",
+                    "message": "Najpierw pobierz get_track_list i wybierz dokładny tytuł z tej listy.",
+                }
             return self._execute_graph_action(
                 "music",
                 "select_track",
@@ -269,6 +302,7 @@ class Assistant:
     
     
     def handle_text(self, text: str, *, report=None, turn_id=None):
+        self._listed_track_titles = set()
         config = self.thread_config
         if report is not None:
             config = merge_configs(config, {"callbacks": [SessionCallbacks(report, turn_id)]})

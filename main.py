@@ -59,7 +59,7 @@ if args.experiment:
     checkpoint_timer = QTimer()
     checkpoint_timer.timeout.connect(save_checkpoint)
     checkpoint_timer.start(5000)
-car = CarSystem()
+car = CarSystem(initial_music_track_index=1 if args.experiment else 0)
 session_controls = SessionControls(car, session_report, touch_enabled=not args.experiment)
 
 #utworzenie wątku dla VoiceWorker

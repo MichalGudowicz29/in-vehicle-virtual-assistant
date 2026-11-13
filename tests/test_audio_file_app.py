@@ -68,6 +68,8 @@ if asr_model != 'vosk':
 class Assistant:
     def __init__(self, car):
         self.car = car
+        assert car.music.currentTrackIndex == (1 if experiment == 'True' else 0)
+        assert car.music.isPlaying is False
     def handle_text(self, text, *, report, turn_id):
         assert text == 'włącz muzykę'
         report.emit('agent_start', turn_id=turn_id)

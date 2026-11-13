@@ -12,9 +12,9 @@ class CarSystem(QObject):
     contactsChanged = Signal()
     callingRequested = Signal(str)
     
-    def __init__(self):
+    def __init__(self, *, initial_music_track_index=0):
         super().__init__()
-        self._music = MusicController()
+        self._music = MusicController(initial_track_index=initial_music_track_index)
         self._contacts = ContactController()
         self._navigation = NavigationController()
         self._screen = "home"

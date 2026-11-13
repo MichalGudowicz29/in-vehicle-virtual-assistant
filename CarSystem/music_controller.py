@@ -8,7 +8,7 @@ class MusicController(QObject):
     currentTrackChanged = Signal()
     isPlayingChanged = Signal()
     
-    def __init__(self):
+    def __init__(self, initial_track_index=0):
         super().__init__()
         self._tracks = [
             {
@@ -28,7 +28,7 @@ class MusicController(QObject):
             },
         ]
 
-        self._current_track_index = 0
+        self._current_track_index = initial_track_index
         self._isPlaying = False
         pygame.mixer.init()
         pygame.mixer.music.load(self._tracks[self._current_track_index]["path"])

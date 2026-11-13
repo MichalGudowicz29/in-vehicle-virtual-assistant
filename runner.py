@@ -24,12 +24,12 @@ VARIANTS = (
 ASR_LABELS = {'vosk': 'Vosk small-pl-0.22', 'whisper-small': 'Whisper small (whisper.cpp)'}
 EXPECTED_ARGUMENTS = {'name': 'Robert Lewandowski', 'number_type': 'mobile'}
 SCENARIOS = {
-    1: dict(title='Muzyka', tools=('select_track', 'play_pause'),
+    1: dict(title='Muzyka', tools=('select_track',),
             prompts=('Włącz piosenkę Christmas Eve',
                      'Włącz Christmas Eve, święta już blisko',
                      'Włącz jakąś muzykę, chcę poczuć klimat świąt'),
             state={'music': {'title': 'Christmas Eve', 'is_playing': True}},
-            effect='Odtwarzany jest Christmas Eve; select_track lub play_pause z wynikiem success=True.'),
+            effect='Pobrano bibliotekę, następnie wybrano Christmas Eve dokładnie raz; utwór jest odtwarzany.'),
     2: dict(title='Telefon', tools=('call_contact',),
             prompts=('Zadzwoń do Roberta Lewandowskiego',
                      'Połącz mnie z Robertem Lewandowskim, musze mu coś powiedzieć',
@@ -60,7 +60,7 @@ def evaluate_session(data, task=2) -> tuple[bool, str]:
             or not isinstance(turns[0].get('id'), int)):
         return False, 'Oczekiwano jednej poprawnie zakończonej tury.'
     calls = [e for e in events if e.get('type') == 'tool_start' and e.get('name') in scenario['tools']]
-    if not calls or (task != 1 and len(calls) != 1):
+    if len(calls) != 1:
         return False, f"Oczekiwane narzędzia: {scenario['tools']}; liczba wywołań: {len(calls)}."
     for call in calls:
         if task == 2:
@@ -79,6 +79,45 @@ def evaluate_session(data, task=2) -> tuple[bool, str]:
                 and e.get('turn_id') == call['turn_id']]
         if len(ends) != 1 or ends[0].get('success') is not True:
             return False, f"Brak potwierdzonego sukcesu właściwego {call['name']}."
+    if task == 1:
+        call = calls[0]
+        arguments = call.get('arguments')
+        if isinstance(arguments, str):
+            try:
+                arguments = json.loads(arguments)
+            except json.JSONDecodeError:
+                return False, 'Niepoprawny JSON argumentów select_track.'
+        if arguments != {'title': 'Christmas Eve'}:
+            return False, 'Wybrano niewłaściwy utwór.'
+        if any(e.get('type') == 'tool_start' and e.get('name') in
+               ('play_pause', 'next_track', 'previous_track') for e in events):
+            return False, 'Wykonano dodatkową operację muzyczną.'
+        preceding = events[:events.index(call)]
+        responses = [e for e in preceding if e.get('type') == 'llm_end'
+                     and e.get('turn_id') == call['turn_id']]
+        if responses and 'get_track_list' in (responses[-1].get('tools') or []):
+            return False, 'Pobranie biblioteki i wybór pochodzą z tej samej odpowiedzi modelu.'
+        listed = False
+        for index, event in enumerate(preceding):
+            if (event.get('type') != 'tool_end' or event.get('name') != 'get_track_list'
+                    or event.get('success') is not True or event.get('turn_id') != call['turn_id']
+                    or not event.get('run_id')):
+                continue
+            if not any(e.get('type') == 'tool_start' and e.get('name') == 'get_track_list'
+                       and e.get('run_id') == event['run_id'] and e.get('turn_id') == call['turn_id']
+                       for e in preceding[:index]):
+                continue
+            output = event.get('output')
+            if isinstance(output, str):
+                try:
+                    output = json.loads(output)
+                except json.JSONDecodeError:
+                    continue
+            if isinstance(output, dict) and isinstance(output.get('tracks'), list):
+                listed = any(isinstance(track, dict) and track.get('title') == arguments['title']
+                             for track in output['tracks'])
+        if not listed:
+            return False, 'Brak potwierdzonego pobrania biblioteki z wybranym utworem przed select_track.'
     states = [e.get('state') for e in events if e.get('type') == 'app_state']
     if not states or not isinstance(states[-1], dict):
         return False, 'Brak zapisanego końcowego stanu aplikacji.'

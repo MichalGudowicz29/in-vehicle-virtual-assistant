@@ -31,13 +31,51 @@ def test_select_track_tool_returns_graph_failure():
     assistant.car = car
     assistant.graph = build_graph(car)
 
-    select_track = next(
-        tool for tool in assistant.build_tools() if tool.name == "select_track"
-    )
+    tools = {tool.name: tool for tool in assistant.build_tools()}
+    select_track = tools['select_track']
+    tools['get_track_list'].invoke({})
 
     result = select_track.invoke({"title": "Unknown track"})
 
     assert result["success"] is False
+
+
+def test_music_selection_requires_current_library_and_starts_playback():
+    from types import SimpleNamespace
+
+    car = CarSystem()
+    assistant = Assistant.__new__(Assistant)
+    assistant.car = car
+    assistant.graph = build_graph(car)
+    tools = {tool.name: tool for tool in assistant.build_tools()}
+    assert tools['select_track'].invoke({'title': 'Chill song'})['success'] is False
+    assert car.music.currentTrackIndex == 0
+    assert car.music.isPlaying is False
+    tools['search_track'].invoke({'query': 'Chill'})
+    assert tools['select_track'].invoke({'title': 'Chill song'})['success'] is False
+    tools['get_track_list'].invoke({})
+    assert tools['select_track'].invoke({'title': 'chill song'})['success'] is False
+    assert tools['select_track'].invoke({'title': 'Chill song'})['success'] is True
+    assert car.music.currentTrackIndex == 1
+    assert car.music.isPlaying is True
+
+    # A new user turn must not reuse authorization from the previous list.
+    assistant.thread_config = {}
+    assistant.agent = SimpleNamespace(stream=lambda *args, **kwargs: iter(()))
+    assistant.handle_text('Włącz Christmas Eve')
+    assert tools['select_track'].invoke({'title': 'Christmas Eve'})['success'] is False
+    assert car.music.currentTrackIndex == 1
+
+
+def test_selection_rechecks_library_after_listing():
+    car = CarSystem()
+    assistant = Assistant.__new__(Assistant)
+    assistant.car = car
+    assistant.graph = build_graph(car)
+    tools = {tool.name: tool for tool in assistant.build_tools()}
+    tools['get_track_list'].invoke({})
+    car.music.tracks.pop()
+    assert tools['select_track'].invoke({'title': 'Dynamic music'})['success'] is False
 
 
 @pytest.mark.parametrize('tool_name', ['navigate_to', 'add_stop'])

@@ -86,6 +86,12 @@ events = []
 if not FAILURES or run != 2:
     events = [dict(type='tool_start', turn_id=1, run_id='call', name=tool, arguments=arguments),
               dict(type='tool_end', turn_id=1, run_id='call', name=tool, success=True)]
+    if task == 1:
+        events[:0] = [
+            dict(type='tool_start', turn_id=1, run_id='list', name='get_track_list', arguments={}),
+            dict(type='tool_end', turn_id=1, run_id='list', name='get_track_list', success=True,
+                 output=json.dumps({'success': True, 'tracks': [{'id': 0, 'title': 'Christmas Eve', 'author': 'Toto'}]})),
+        ]
 events.append(dict(type='app_state', turn_id=None, state=state))
 label = {'vosk': 'Vosk small-pl-0.22', 'whisper-small': 'Whisper small (whisper.cpp)'}[args.asr]
 data = dict(session_id=f'session_{run}', ended_at='2026-11-05T10:00:00+01:00', models=dict(asr=label, llm=os.environ['OLLAMA_MODEL'], tts='Supertonic'),
@@ -303,7 +309,6 @@ def test_invalid_child_execution_is_recorded_instead_of_counted_as_success(monke
 
 @pytest.mark.parametrize('task, tool, arguments, state', [
     (1, 'select_track', {'title': 'Christmas Eve'}, {'music': {'title': 'Christmas Eve', 'is_playing': True}}),
-    (1, 'play_pause', {}, {'music': {'title': 'Christmas Eve', 'is_playing': True}}),
     (3, 'navigate_to', {'street': 'zolnierska', 'number': '47', 'city': 'szczecin'},
      {'navigation': {'destination': 'ul. Żołnierska 47, Szczecin', 'stops': []}}),
 ])
@@ -314,9 +319,60 @@ def test_scenario_success_requires_both_action_and_expected_final_state(task, to
         dict(type='tool_end', turn_id=1, run_id='action', name=tool, success=True),
         dict(type='app_state', turn_id=None, state=state),
     ]}
+    if task == 1:
+        data['events'][:0] = music_listing()
     assert evaluate_session(data, task)[0] is True
     data['events'][-1]['state'] = {}
     assert evaluate_session(data, task)[0] is False
+
+
+def music_listing():
+    return [
+        dict(type='tool_start', turn_id=1, run_id='list', name='get_track_list', arguments={}),
+        dict(type='tool_end', turn_id=1, run_id='list', name='get_track_list', success=True,
+             output=json.dumps({'success': True, 'tracks': [{'id': 0, 'title': 'Christmas Eve', 'author': 'Toto'}]})),
+    ]
+
+
+@pytest.mark.parametrize('problem', ['no_list', 'late_list', 'failed_list', 'wrong_turn',
+                                      'wrong_run', 'missing_title', 'bad_output', 'play_pause',
+                                      'wrong_title', 'duplicate', 'extra_toggle', 'same_response'])
+def test_music_evaluation_requires_list_then_one_matching_selection(problem):
+    from runner import evaluate_session
+    listing = music_listing()
+    action = [dict(type='tool_start', turn_id=1, run_id='play', name='select_track',
+                   arguments={'title': 'Christmas Eve'}),
+              dict(type='tool_end', turn_id=1, run_id='play', name='select_track', success=True)]
+    if problem == 'no_list':
+        listing = []
+    elif problem == 'failed_list':
+        listing[1]['success'] = False
+    elif problem == 'wrong_turn':
+        for event in listing:
+            event['turn_id'] = 2
+    elif problem == 'wrong_run':
+        listing[1]['run_id'] = 'other'
+    elif problem == 'missing_title':
+        listing[1]['output'] = json.dumps({'success': True, 'tracks': []})
+    elif problem == 'bad_output':
+        listing[1]['output'] = 'not JSON'
+    elif problem == 'play_pause':
+        for event in action:
+            event['name'] = 'play_pause'
+        action[0]['arguments'] = {}
+    elif problem == 'wrong_title':
+        action[0]['arguments'] = {'title': 'Chill song'}
+    elif problem == 'duplicate':
+        action += [dict(event, run_id='second') for event in action]
+    elif problem == 'extra_toggle':
+        action += [dict(type='tool_start', turn_id=1, run_id='toggle', name='play_pause', arguments={}),
+                   dict(type='tool_end', turn_id=1, run_id='toggle', name='play_pause', success=True)]
+    elif problem == 'same_response':
+        listing.insert(0, dict(type='llm_end', turn_id=1, tools=['get_track_list', 'select_track']))
+    data = {'turns': [{'id': 1, 'status': 'completed'}],
+            'events': (action + listing if problem == 'late_list' else listing + action) + [
+                dict(type='app_state', state={'music': {'title': 'Christmas Eve', 'is_playing': True}})]}
+    assert evaluate_session(data, 1)[0] is False
 
 
 def test_phone_success_requires_call_to_still_be_active():
