@@ -5,6 +5,8 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+pytestmark = pytest.mark.usefixtures('sounddevice_stub')
+
 
 def load_tts(monkeypatch):
     class FakeTTS:

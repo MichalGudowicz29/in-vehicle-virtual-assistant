@@ -1,7 +1,10 @@
 import json
 from threading import Event
+import pytest
 
 import asr.vosk as asr
+
+pytestmark = pytest.mark.usefixtures('sounddevice_stub')
 
 
 def test_stop_during_partial_transcription_finishes_speech(monkeypatch):

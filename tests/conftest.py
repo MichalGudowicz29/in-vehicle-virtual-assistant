@@ -4,6 +4,8 @@ import os
 import wave
 import threading
 import time
+import sys
+from types import ModuleType
 
 import pytest
 
@@ -14,6 +16,19 @@ os.environ.setdefault("QT_QUICK_BACKEND", "software")
 # Test fixtures stay independent of the user's .env and work in CI without it.
 os.environ["OLLAMA_MODEL"] = "test-local-default:2b"
 os.environ["ASR_MODEL"] = "vosk"
+
+
+@pytest.fixture
+def sounddevice_stub(monkeypatch):
+    """Replace hardware I/O before sounddevice can initialize PortAudio on import."""
+    module = ModuleType('sounddevice')
+
+    def unexpected_audio(*args, **kwargs):
+        raise AssertionError('Test must replace the sounddevice operation it uses.')
+
+    for name in ('query_devices', 'RawInputStream', 'InputStream', 'play', 'wait'):
+        setattr(module, name, unexpected_audio)
+    monkeypatch.setitem(sys.modules, 'sounddevice', module)
 
 
 @pytest.fixture(scope="session")

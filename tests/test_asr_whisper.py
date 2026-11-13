@@ -5,6 +5,8 @@ import numpy as np
 import pytest
 import soundfile as sf
 
+pytestmark = pytest.mark.usefixtures('sounddevice_stub')
+
 
 def setup_decode(monkeypatch):
     from asr import whisper

@@ -227,6 +227,8 @@ renderowania. Tymczasowy WAV zastępuje prywatne pliki `music/*.mp3`, również
 w testach uruchamiających aplikację w osobnym procesie. Nie trzeba udostępniać
 karty dźwiękowej ani własnej muzyki. Workflow Ubuntu instaluje systemowe
 biblioteki PortAudio i Qt, których samo `uv sync` nie dostarcza.
+Testy ASR i TTS podmieniają `sounddevice` przed importem, więc nie inicjalizują
+PortAudio ani nie wymagają działającego serwera PulseAudio.
 
 # Jedna tura z pliku audio
 
