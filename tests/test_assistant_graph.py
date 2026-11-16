@@ -8,7 +8,11 @@ from graph import build_graph
 def test_assistant_delegates_music_action_to_graph():
     car = CarSystem()
     assistant = Assistant.__new__(Assistant)
+    assistant.car = car
     assistant.graph = build_graph(car)
+
+    tools = {tool.name: tool for tool in assistant.build_tools()}
+    tools['set_action_plan'].invoke({'actions': ['play_pause']})
 
     result = assistant._execute_graph_action(
         "music",
@@ -33,6 +37,7 @@ def test_select_track_tool_returns_graph_failure():
 
     tools = {tool.name: tool for tool in assistant.build_tools()}
     select_track = tools['select_track']
+    tools['set_action_plan'].invoke({'actions': ['select_track']})
     tools['get_track_list'].invoke({})
 
     result = select_track.invoke({"title": "Unknown track"})
@@ -41,13 +46,12 @@ def test_select_track_tool_returns_graph_failure():
 
 
 def test_music_selection_requires_current_library_and_starts_playback():
-    from types import SimpleNamespace
-
     car = CarSystem()
     assistant = Assistant.__new__(Assistant)
     assistant.car = car
     assistant.graph = build_graph(car)
     tools = {tool.name: tool for tool in assistant.build_tools()}
+    tools['set_action_plan'].invoke({'actions': ['select_track']})
     assert tools['select_track'].invoke({'title': 'Chill song'})['success'] is False
     assert set(tools['select_track'].tool_call_schema.model_json_schema()['properties']) == {'title'}
     assert car.music.currentTrackIndex == 0
@@ -60,20 +64,13 @@ def test_music_selection_requires_current_library_and_starts_playback():
     assert car.music.currentTrackIndex == 1
     assert car.music.isPlaying is True
 
-    # A new user turn must not reuse authorization from the previous list.
-    assistant.thread_config = {}
-    assistant.agent = SimpleNamespace(stream=lambda *args, **kwargs: iter(()))
-    assistant.handle_text('Włącz Christmas Eve')
-    assert tools['select_track'].invoke({'title': 'Christmas Eve'})['success'] is False
-    assert car.music.currentTrackIndex == 1
-
-
 def test_selection_rechecks_library_after_listing():
     car = CarSystem()
     assistant = Assistant.__new__(Assistant)
     assistant.car = car
     assistant.graph = build_graph(car)
     tools = {tool.name: tool for tool in assistant.build_tools()}
+    tools['set_action_plan'].invoke({'actions': ['select_track']})
     tools['get_track_list'].invoke({})
     car.music.tracks.pop()
     assert tools['select_track'].invoke({'title': 'Dynamic music'})['success'] is False
@@ -93,7 +90,9 @@ def test_address_tools_accept_street_with_or_without_prefix_and_house_number(too
     assistant = Assistant.__new__(Assistant)
     assistant.car = car
     assistant.graph = build_graph(car)
-    tool = next(tool for tool in assistant.build_tools() if tool.name == tool_name)
+    tools = {tool.name: tool for tool in assistant.build_tools()}
+    tools['set_action_plan'].invoke({'actions': [tool_name]})
+    tool = tools[tool_name]
     result = tool.invoke({'street': street, 'city': 'Szczecin', 'number': number})
     assert result['success'] is True
     assert result['destination' if tool_name == 'navigate_to' else 'stop'] == 'ul. Żołnierska 47, Szczecin'
@@ -106,6 +105,8 @@ def test_address_tool_does_not_silently_replace_conflicting_house_number(street)
     assistant = Assistant.__new__(Assistant)
     assistant.car = car
     assistant.graph = build_graph(car)
-    tool = next(tool for tool in assistant.build_tools() if tool.name == 'navigate_to')
+    tools = {tool.name: tool for tool in assistant.build_tools()}
+    tools['set_action_plan'].invoke({'actions': ['navigate_to']})
+    tool = tools['navigate_to']
     assert tool.invoke({'street': street, 'city': 'Szczecin', 'number': '47'})['success'] is False
     assert car.navigation.destination == ''

@@ -1,6 +1,7 @@
 """Measure actual model/tool executions, including tools that bypass the HMI graph."""
 
 import json
+from copy import deepcopy
 from threading import Lock
 
 from langchain_core.callbacks import BaseCallbackHandler
@@ -9,9 +10,10 @@ from langchain_core.callbacks import BaseCallbackHandler
 class SessionCallbacks(BaseCallbackHandler):
     run_inline = True
 
-    def __init__(self, report, turn_id):
+    def __init__(self, report, turn_id, *, generation_settings=None):
         self.report = report
         self.turn_id = turn_id
+        self.generation_settings = deepcopy(generation_settings or {})
         self._tools = {}
         self._lock = Lock()
 
@@ -19,22 +21,43 @@ class SessionCallbacks(BaseCallbackHandler):
         self.report.emit(event, turn_id=self.turn_id, run_id=str(run_id), **data)
 
     def on_chat_model_start(self, serialized, messages, *, run_id, **kwargs):
-        self._emit('llm_start', run_id)
+        self._emit('llm_start', run_id, generation_settings={
+            'source': 'client_requested', 'effective': 'unknown',
+            'values': self.generation_settings,
+        })
 
     def on_llm_end(self, response, *, run_id, **kwargs):
-        messages = [getattr(generation, 'message', None)
-                    for batch in response.generations for generation in batch]
+        self._emit('llm_end', run_id, success=True, **self._response_data(response))
+
+    @staticmethod
+    def _response_data(response):
         usage = None
         tools = []
-        for message in messages:
-            tools.extend(call['name'] for call in getattr(message, 'tool_calls', []))
-            metadata = getattr(message, 'usage_metadata', None)
-            if metadata is not None:
-                usage = {key: metadata[key] for key in ('input_tokens', 'output_tokens', 'total_tokens')}
-        self._emit('llm_end', run_id, success=True, tools=tools, usage=usage)
+        response_metadata = {}
+        content_chars = None
+        reasoning_content_chars = None
+        for batch in getattr(response, 'generations', []):
+            for generation in batch:
+                message = getattr(generation, 'message', None)
+                content = getattr(message, 'content', None)
+                if isinstance(content, str):
+                    content_chars = (content_chars or 0) + len(content)
+                reasoning = getattr(message, 'additional_kwargs', {}).get('reasoning_content')
+                if isinstance(reasoning, str):
+                    reasoning_content_chars = (reasoning_content_chars or 0) + len(reasoning)
+                tools.extend(call['name'] for call in getattr(message, 'tool_calls', []))
+                metadata = getattr(message, 'usage_metadata', None)
+                if metadata is not None:
+                    usage = {key: metadata[key] for key in ('input_tokens', 'output_tokens', 'total_tokens')}
+                response_metadata.update(getattr(generation, 'generation_info', None) or {})
+                response_metadata.update(getattr(message, 'response_metadata', None) or {})
+        return dict(tools=tools, usage=usage, response_metadata=response_metadata,
+                    done_reason=response_metadata.get('done_reason'),
+                    content_chars=content_chars, reasoning_content_chars=reasoning_content_chars)
 
     def on_llm_error(self, error, *, run_id, **kwargs):
-        self._emit('llm_end', run_id, success=False, error=str(error), usage=None)
+        self._emit('llm_end', run_id, success=False, error=str(error),
+                   **self._response_data(kwargs.get('response')))
 
     def on_tool_start(self, serialized, input_str, *, run_id, inputs=None, **kwargs):
         name = (serialized or {}).get('name', 'unknown')

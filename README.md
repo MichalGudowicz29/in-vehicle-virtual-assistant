@@ -61,6 +61,32 @@ niejednoznaczności, błędzie albo pytaniu informacyjnym. Pusta odpowiedź koń
 kończy turę bez uruchamiania TTS i bez pomiarów syntezy/odtwarzania w raporcie.
 Stosowanie tych reguł przez dany model należy sprawdzać na nagraniach testowych.
 
+Przed akcjami wykonawczymi agent zapisuje `set_action_plan` z nazwami wszystkich
+żądanych akcji w kolejności wykonania. Plan jest niezmienny w obrębie tury.
+Narzędzia z jednej odpowiedzi modelu wykonują się kolejno (`max_concurrency=1`),
+żeby zaplanowana pauza nie wyprzedziła wyboru utworu.
+Pobranie kontaktów, biblioteki lub miejsc nie zalicza żadnej akcji planu.
+Po sukcesie ostatniej akcji middleware zwraca pustą odpowiedź bez kolejnego
+żądania HTTP do LLM. Nieudana akcja nie przesuwa planu; doprecyzowanie lub
+komunikat błędu nadal mogą zakończyć odpowiedź. Pusta odpowiedź bez wykonania
+całego planu jest błędem, a nie potwierdzeniem realizacji polecenia.
+
+Udane połączenia, wybory utworów i operacje na trasie są zapamiętywane wraz
+z argumentami do końca tury. Identyczna ponowna akcja nie uruchamia kontrolera.
+Niezamówione przełączenie muzyki jest blokowane przez plan; jawnie zaplanowana
+pauza pozostaje dozwolona. `tool_start` i `tool_end` nadal zapisują próbę,
+`success=false` oraz powód blokady w wyniku narzędzia. Limit grafu wynosi 24
+kroki, aby pomieścić plan i pobieranie danych dla poleceń złożonych; ochronę
+przed powtórzeniem zapewnia kod, niezależnie od tego limitu.
+
+Opcjonalne `OLLAMA_NUM_CTX`, `OLLAMA_NUM_PREDICT` i `OLLAMA_REASONING` są opisane
+w `.env.example`. Puste wartości pozostawiają domyślne ustawienia runtime.
+Raporty TXT/JSON zapisują żądane ustawienia przy `llm_start`, a przy `llm_end`
+`done_reason`, metadane serwera i dostępne długości treści oraz reasoning.
+`null` nie oznacza wyłączonego reasoning ani ustalonego rozmiaru kontekstu.
+Domyślnych parametrów generacji nie zmieniono bez dowodu przyczyny błędów.
+[Diagnoza przypadków 4096 tokenów i XML](GENERATION_DIAGNOSIS.md).
+
 Przed wyborem muzyki agent pobiera `get_track_list` w bieżącej turze i dopasowuje
 życzenie do dostępnych tytułów i wykonawców. `select_track` odrzuca tytuł, którego
 nie było na tej liście; kontroler dodatkowo sprawdza, czy nadal jest w bibliotece.

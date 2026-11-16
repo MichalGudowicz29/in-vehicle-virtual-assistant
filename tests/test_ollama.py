@@ -48,6 +48,7 @@ def test_chatollama_executes_tools_and_reports_server_token_counts(monkeypatch, 
     from langchain_ollama import ChatOllama
 
     monkeypatch.setattr(config, 'OLLAMA_MODEL', 'test-offline:8b')
+    monkeypatch.setattr(config, 'LLM_GENERATION', {'num_ctx': 8192, 'num_predict': 128, 'reasoning': False})
     monkeypatch.delenv('OPENAI_API_KEY', raising=False)
     requests = []
     def respond(request):
@@ -56,6 +57,9 @@ def test_chatollama_executes_tools_and_reports_server_token_counts(monkeypatch, 
         requests.append(body)
         assert body['model'] == 'test-offline:8b'
         assert body['options']['temperature'] == 0
+        assert body['options']['num_ctx'] == 8192
+        assert body['options']['num_predict'] == 128
+        assert body['think'] is False
         assert 'get_track_list' in [tool['function']['name'] for tool in body['tools']]
         if len(requests) == 1:
             message = {'role': 'assistant', 'content': '', 'tool_calls': [
@@ -82,6 +86,9 @@ def test_chatollama_executes_tools_and_reports_server_token_counts(monkeypatch, 
     assert data['metrics']['Narzędzie: get_track_list']['n'] == 1
     assert data['tokens'] == {'input_tokens': 20, 'output_tokens': 6, 'total_tokens': 26,
                               'known_requests': 2, 'missing_requests': 0}
+    llm_start = next(event for event in data['events'] if event['type'] == 'llm_start')
+    assert llm_start['generation_settings']['values']['num_ctx'] == 8192
+    assert all(event['done_reason'] == 'stop' for event in data['events'] if event['type'] == 'llm_end')
     event = next(event for event in data['events'] if event['type'] == 'tool_end')
     assert event['success'] is True
     assert event['output'] == requests[1]['messages'][-1]['content']
@@ -138,10 +145,11 @@ def test_music_library_authorization_expires_between_real_agent_turns(monkeypatc
 
     responses = iter([
         {'role': 'assistant', 'content': '', 'tool_calls': [
+            {'function': {'name': 'set_action_plan', 'arguments': {'actions': ['select_track']}}}]},
+        {'role': 'assistant', 'content': '', 'tool_calls': [
             {'function': {'name': 'get_track_list', 'arguments': {}}}]},
         {'role': 'assistant', 'content': '', 'tool_calls': [
             {'function': {'name': 'select_track', 'arguments': {'title': 'Chill song'}}}]},
-        {'role': 'assistant', 'content': ''},
         {'role': 'assistant', 'content': '', 'tool_calls': [
             {'function': {'name': 'select_track', 'arguments': {'title': 'Christmas Eve'}}}]},
         {'role': 'assistant', 'content': 'Nie wybrano utworu.'},
@@ -184,7 +192,7 @@ def test_music_cannot_be_selected_in_same_model_response_as_library_request(monk
 
     def respond(request):
         requests.append(json.loads(request.content))
-        message = {'role': 'assistant', 'content': ''}
+        message = {'role': 'assistant', 'content': 'Nie wybrano utworu.'}
         if len(requests) == 1:
             message['tool_calls'] = [
                 {'function': {'name': 'get_track_list', 'arguments': {}}},

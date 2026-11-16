@@ -18,3 +18,33 @@ if not OLLAMA_MODEL:
 ASR_MODEL = os.getenv("ASR_MODEL", "").strip()
 if not ASR_MODEL:
     raise ValueError("Ustaw ASR_MODEL w pliku .env; wybierz backend rozpoznawania mowy.")
+
+
+def _optional_positive_int(name):
+    value = os.getenv(name, '').strip()
+    if not value:
+        return None
+    try:
+        number = int(value)
+    except ValueError:
+        raise ValueError(f'{name} musi być dodatnią liczbą całkowitą.') from None
+    if number <= 0:
+        raise ValueError(f'{name} musi być dodatnią liczbą całkowitą.')
+    return number
+
+
+def _optional_bool(name):
+    value = os.getenv(name, '').strip().lower()
+    if not value:
+        return None
+    if value not in ('true', 'false'):
+        raise ValueError(f'{name} musi mieć wartość true albo false.')
+    return value == 'true'
+
+
+# None delegates to the model/server; the effective value remains unknown.
+LLM_GENERATION = {
+    'num_ctx': _optional_positive_int('OLLAMA_NUM_CTX'),
+    'num_predict': _optional_positive_int('OLLAMA_NUM_PREDICT'),
+    'reasoning': _optional_bool('OLLAMA_REASONING'),
+}

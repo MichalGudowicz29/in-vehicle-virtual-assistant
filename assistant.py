@@ -1,10 +1,13 @@
 import re
+import json
+from threading import RLock
 
 import config
 
 from httpx import ConnectError
 
 from langchain.agents import create_agent # type: ignore
+from langchain.agents.middleware import wrap_model_call
 from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.config import merge_configs
 from langchain.tools import InjectedToolArg, ToolRuntime, tool # type: ignore
@@ -25,6 +28,12 @@ tylko wtedy, gdy bez jego odpowiedzi nie możesz poprawnie wykonać zadania.
 Użytkownik ma móc skupić się na prowadzeniu i swoich zadaniach.
 
 Zasady:
+- Przed akcjami wykonawczymi zapisz set_action_plan z uporządkowaną listą
+  wszystkich żądanych akcji. Dla polecenia złożonego uwzględnij każdą z nich.
+  Plan zawiera nazwy akcji, bez narzędzi pobierających dane. Możesz najpierw
+  pobrać dane lub dopytać użytkownika. Ustalony plan jest niezmienny w tej turze.
+  Nie wykonuj skutków ubocznych w tym samym wywołaniu co zapis planu.
+  Przykłady poniżej pomijają zapis planu, ale nie zwalniają z tej zasady.
 - Jasne polecenie wykonaj od razu. Nie proś o zgodę na żądaną czynność.
   Wykonuj wyłącznie żądane działania, bez zgadywania istotnych danych.
 - Po udanym wykonaniu całego żądanego zadania zakończ turę z pustą treścią
@@ -97,22 +106,60 @@ class Assistant:
         self.checkpointer = InMemorySaver()
         self.thread_config: RunnableConfig = {
             "configurable": {"thread_id": thread_id},
-            "recursion_limit": 8,
+            "max_concurrency": 1,
+            # Compound plans need lookup and execution rounds; guards prevent repeated effects.
+            "recursion_limit": 24,
         }
         self.graph = build_graph(car)
         self.agent = self.initialize_agent()
 
+    def _reset_execution(self):
+        self._execution_lock = RLock()
+        self._action_plan = None
+        self._next_action = 0
+        self._completed_actions = {}
+        self._response_tools = set()
+        self._listed_track_titles = set()
+
     def _execute_graph_action(self, intent: str, action: str, payload: dict):
-        state = self.graph.invoke({
-            "intent": intent,
-            "action": action,
-            "payload": payload,
-        })
-        return state["result"]
+        name = 'navigate_to' if action == 'set_destination' else action
+        key = (intent, action, json.dumps(payload, sort_keys=True, ensure_ascii=False))
+        with self._execution_lock:
+            reason = None
+            if 'set_action_plan' in self._response_tools:
+                reason = 'plan_not_observed'
+            elif key in self._completed_actions and name in ('call_contact', 'navigate_to', 'select_track', 'add_stop'):
+                reason = 'duplicate_action'
+            elif self._action_plan is None:
+                reason = 'missing_plan'
+            elif self._next_action >= len(self._action_plan) or self._action_plan[self._next_action] != name:
+                reason = 'unplanned_action'
+            if reason:
+                return {'success': False, 'action': action, 'blocked': True, 'reason': reason,
+                        'message': 'Akcja zablokowana: wykonana wcześniej albo niezgodna z bieżącym planem.'}
+            state = self.graph.invoke({'intent': intent, 'action': action, 'payload': payload})
+            result = state['result']
+            if result.get('success') is True:
+                self._completed_actions[key] = result
+                self._next_action += 1
+            return result
         
     def build_tools(self):
         car = self.car
-        self._listed_track_titles = set()
+        self._reset_execution()
+
+        @tool
+        def set_action_plan(actions: list[Literal[
+            'call_contact', 'navigate_to', 'select_track', 'add_stop',
+            'play_pause', 'next_track', 'previous_track',
+        ]]):
+            """Zapisuje kolejność wszystkich żądanych akcji wykonawczych w tej turze. Bez narzędzi pobierających dane. Plan jest niezmienny; zapisz go przed wykonaniem akcji."""
+            with self._execution_lock:
+                if not actions or self._action_plan is not None:
+                    return {'success': False, 'reason': 'invalid_or_locked_plan',
+                            'message': 'Plan musi być niepusty i można go ustalić tylko raz w turze.'}
+                self._action_plan = list(actions)
+                return {'success': True, 'actions': self._action_plan}
 
         # Muzyka
         @tool
@@ -267,6 +314,7 @@ class Assistant:
             
 
         return [
+            set_action_plan,
             # Muzyka
             play_pause, 
             next_track, 
@@ -288,30 +336,46 @@ class Assistant:
 
     # dodac try except 
     def initialize_agent(self):
+        @wrap_model_call
+        def finish_completed_plan(request, handler):
+            if self._action_plan is not None and self._next_action == len(self._action_plan):
+                return AIMessage(content='')
+            response = handler(request)
+            self._response_tools = {
+                call['name'] for message in response.result
+                for call in getattr(message, 'tool_calls', [])
+            }
+            return response
+
         return create_agent(
             model=ChatOllama(
                 model=config.OLLAMA_MODEL,
                 base_url="http://127.0.0.1:11434",
                 temperature=0,
+                **config.LLM_GENERATION,
                 client_kwargs={"trust_env": False},
             ),
             system_prompt=SYSTEM_PROMPT_SHORT,
             tools=self.build_tools(),
             checkpointer=self.checkpointer,
+            middleware=[finish_completed_plan],
         )
     
     
     def handle_text(self, text: str, *, report=None, turn_id=None):
-        self._listed_track_titles = set()
-        config = self.thread_config
+        self._reset_execution()
+        run_config = self.thread_config
         if report is not None:
-            config = merge_configs(config, {"callbacks": [SessionCallbacks(report, turn_id)]})
+            run_config = merge_configs(run_config, {"callbacks": [SessionCallbacks(
+                report, turn_id, generation_settings={**config.LLM_GENERATION, 'temperature': 0,
+                                                     'recursion_limit': self.thread_config.get('recursion_limit')},
+            )]})
             report.emit("agent_start", turn_id=turn_id)
         input_data: InputAgentState = {"messages": [{"role": "user", "content": text}]}
         final_text = ""
         try:
             for raw_chunk in self.agent.stream(
-                input_data, config=config, stream_mode="updates", version="v2",
+                input_data, config=run_config, stream_mode="updates", version="v2",
             ):
                 if not isinstance(raw_chunk, dict):
                     continue
@@ -327,6 +391,10 @@ class Assistant:
                     for message in messages:
                         if isinstance(message, AIMessage) and not message.tool_calls:
                             final_text = message.text
+            if not final_text and not (
+                self._action_plan is not None and self._next_action == len(self._action_plan)
+            ):
+                raise RuntimeError('Model zakończył turę bez wykonania planu i bez komunikatu dla użytkownika.')
         except Exception as error:
             message = str(error)
             if isinstance(error, ConnectError):
@@ -341,5 +409,8 @@ class Assistant:
                 raise ConnectionError(message) from error
             raise
         if report is not None:
-            report.emit("agent_end", turn_id=turn_id, success=True, text=final_text)
+            report.emit("agent_end", turn_id=turn_id, success=True, text=final_text,
+                        completion_reason='plan_completed' if self._action_plan is not None and
+                        self._next_action == len(self._action_plan) else 'model_response',
+                        planned_actions=self._action_plan, completed_action_count=self._next_action)
         return final_text

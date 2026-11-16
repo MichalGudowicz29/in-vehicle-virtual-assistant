@@ -271,6 +271,10 @@ def _history_lines(events, origin):
         lines.append(f"+{event['time_s'] - origin:06.3f}  {label}")
         for key, title in (('text', 'Tekst'), ('arguments', 'Argumenty'),
                            ('state', 'Stan'),
+                           ('generation_settings', 'Ustawienia generacji (null = domyślne modelu/serwera; wartości efektywne nieznane)'),
+                           ('done_reason', 'done_reason'), ('response_metadata', 'response_metadata'),
+                           ('content_chars', 'content_chars'),
+                           ('reasoning_content_chars', 'reasoning_content_chars (null = przechwycenie nieznane)'),
                            ('tools', 'Wywołaj'), ('screen', 'Ekran'), ('error', 'Błąd'), ('warning', 'Uwaga')):
             if key in event:
                 lines.append(f'         {title}: {json.dumps(event[key], ensure_ascii=False)}')
