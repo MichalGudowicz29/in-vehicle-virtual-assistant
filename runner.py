@@ -90,7 +90,7 @@ def evaluate_session(data, task=2) -> tuple[bool, str]:
         if arguments != {'title': 'Christmas Eve'}:
             return False, 'Wybrano niewłaściwy utwór.'
         if any(e.get('type') == 'tool_start' and e.get('name') in
-               ('play_pause', 'next_track', 'previous_track') for e in events):
+               ('play_pause', 'pause_music', 'resume_music', 'next_track', 'previous_track') for e in events):
             return False, 'Wykonano dodatkową operację muzyczną.'
         preceding = events[:events.index(call)]
         responses = [e for e in preceding if e.get('type') == 'llm_end'

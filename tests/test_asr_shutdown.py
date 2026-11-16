@@ -7,10 +7,25 @@ import asr.vosk as asr
 pytestmark = pytest.mark.usefixtures('sounddevice_stub')
 
 
-def test_stop_during_partial_transcription_finishes_speech(monkeypatch):
+@pytest.mark.parametrize('delayed_endpoint', [False, True])
+def test_stop_during_partial_transcription_finishes_speech(monkeypatch, delayed_endpoint):
     import sounddevice
 
     stop = Event()
+    clock = [0.0]
+    waits = []
+
+    class Queue(asr.queue.Queue):
+        def get(self, timeout=None):
+            try:
+                return super().get(block=False)
+            except asr.queue.Empty:
+                waits.append(timeout)
+                assert len(waits) <= 6, 'Expected the next native microphone block'
+                clock[0] += timeout
+                if len(waits) == 6:
+                    return b'end', None, None
+                raise
 
     class FakeRecognizer:
         def AcceptWaveform(self, data):
@@ -26,17 +41,21 @@ def test_stop_during_partial_transcription_finishes_speech(monkeypatch):
             return json.dumps({"text": "włącz muzykę"})
 
     class FakeStream:
+        active = True
         def __init__(self, **kwargs):
             self.callback = kwargs["callback"]
 
         def __enter__(self):
             self.callback(b"start", 0, None, None)
-            self.callback(b"end", 0, None, None)
+            if not delayed_endpoint:
+                self.callback(b"end", 0, None, None)
 
         def __exit__(self, *args):
             pass
 
     monkeypatch.setattr(asr, "_get_model", lambda: None)
+    monkeypatch.setattr(asr.queue, 'Queue', Queue)
+    monkeypatch.setattr(asr, 'perf_counter', lambda: clock[0])
     monkeypatch.setattr(asr, "KaldiRecognizer", lambda *args: FakeRecognizer())
     monkeypatch.setattr(sounddevice, "query_devices", lambda **kwargs: {"default_samplerate": 16000})
     monkeypatch.setattr(sounddevice, "RawInputStream", FakeStream)
@@ -118,3 +137,64 @@ def test_asr_without_word_timing_keeps_transcription_and_reports_missing_boundar
     monkeypatch.setattr(sounddevice, 'RawInputStream', Stream)
     assert asr.asr_vosk(Event(), on_event=lambda event, **data: events.append(event)) == 'włącz muzykę'
     assert events == ['asr_warning', 'transcription_ready']
+
+
+@pytest.mark.parametrize('speech', [False, True])
+@pytest.mark.parametrize('disconnected', [False, True])
+def test_vosk_missing_input_exits_without_finalizing_partial_speech(monkeypatch, speech, disconnected):
+    import queue
+    import sounddevice
+
+    stop = Event()
+    clock = [0.0]
+    waits = []
+
+    class Queue(queue.Queue):
+        def get(self, timeout=None):
+            try:
+                return super().get(block=False)
+            except queue.Empty:
+                waits.append(timeout)
+                assert len(waits) <= 20, 'ASR kept waiting after microphone stalled'
+                clock[0] += timeout
+                stream.active = not disconnected
+                if not disconnected:
+                    stop.set()
+                raise
+
+    class Recognizer:
+        def AcceptWaveform(self, data):
+            return False
+        def PartialResult(self):
+            return '{"partial": "włącz"}'
+        def FinalResult(self):
+            pytest.fail('A truncated microphone command must not be finalized')
+
+    class Stream:
+        active = True
+        def __init__(self, **kwargs):
+            self.callback = kwargs['callback']
+        def __enter__(self):
+            if speech:
+                self.callback(b'partial', 0, None, None)
+            return self
+        def __exit__(self, *args):
+            self.active = False
+
+    stream = None
+    def open_stream(**kwargs):
+        nonlocal stream
+        stream = Stream(**kwargs)
+        return stream
+
+    monkeypatch.setattr(asr.queue, 'Queue', Queue)
+    monkeypatch.setattr(asr, 'perf_counter', lambda: clock[0])
+    monkeypatch.setattr(asr, '_get_model', lambda: None)
+    monkeypatch.setattr(asr, 'KaldiRecognizer', lambda *args: Recognizer())
+    monkeypatch.setattr(sounddevice, 'query_devices', lambda **kwargs: {'default_samplerate': 16000})
+    monkeypatch.setattr(sounddevice, 'RawInputStream', open_stream)
+
+    assert asr.asr_vosk(stop) is None
+    assert waits and all(wait == .1 for wait in waits)
+    assert clock[0] <= 1.2
+    assert not stream.active

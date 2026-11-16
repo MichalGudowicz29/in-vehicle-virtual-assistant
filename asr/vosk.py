@@ -40,19 +40,27 @@ def asr_vosk(stop_event: threading.Event, on_event=None) -> str | None:
                        if time is not None else None)
         audio_queue.put((bytes(indata), captured_at, str(status) if status else None))
 
-    with sd.RawInputStream(
+    stream = sd.RawInputStream(
         samplerate=samplerate,
         blocksize=8000,
         dtype="int16",
         channels=1,
         callback=audio_callback,
-    ):
+    )
+    with stream:
+        last_audio_at = perf_counter()
+        # Allow two native blocks to arrive before abandoning a stopped turn.
+        stall_timeout = max(1.0, 2 * 8000 / samplerate)
         while not stop_event.is_set() or speech_started:
             try:
                 data, captured_at, warning = audio_queue.get(timeout=0.1)
             except queue.Empty:
+                if not stream.active or (stop_event.is_set() and
+                                         perf_counter() - last_audio_at >= stall_timeout):
+                    return None
                 continue
 
+            last_audio_at = perf_counter()
             if first_audio_at is None:
                 first_audio_at = captured_at
             if warning:

@@ -12,17 +12,17 @@ def test_assistant_delegates_music_action_to_graph():
     assistant.graph = build_graph(car)
 
     tools = {tool.name: tool for tool in assistant.build_tools()}
-    tools['set_action_plan'].invoke({'actions': ['play_pause']})
+    tools['set_action_plan'].invoke({'actions': ['resume_music']})
 
     result = assistant._execute_graph_action(
         "music",
-        "play_pause",
-        {},
+        "set_playback",
+        {"playing": True},
     )
 
     assert result == {
         "success": True,
-        "action": "play_pause",
+        "action": "set_playback",
         "isPlaying": True,
         "currentTrackIndex": 0,
     }

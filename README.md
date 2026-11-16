@@ -41,13 +41,6 @@ Projekt używa Vosk lub whisper.cpp, LangChain/LangGraph, lokalnej Ollamy i Supe
    uv run python main.py
    ```
 
-   Ręczne uruchomienie domyślnie używa **Whisper small** w wątku głosowym.
-   Wagi `models/whisper/ggml-small.bin` muszą być przygotowane. `--asr` pozwala
-   jawnie wybrać inny model. Tryb `--experiment` zachowuje `ASR_MODEL` i wybór runnera.
-   W trybie ręcznym nieustawione reasoning ma wartość `false`; jawne ustawienie
-   `OLLAMA_REASONING=true/false` pozostaje respektowane. Eksperyment nie nadpisuje
-   tego ustawienia. Wybrany ASR jest wyświetlany w terminalu przed nasłuchem.
-
 LLM łączy się z `http://127.0.0.1:11434`, bez proxy środowiskowego i fallbacku
 do chmurowego API. Model nie jest automatycznie pobierany ani instalowany.
 Wybieraj modele lokalne, nie warianty `-cloud`. Aplikacja wyłącza tracing
@@ -68,10 +61,24 @@ niejednoznaczności, błędzie albo pytaniu informacyjnym. Pusta odpowiedź koń
 kończy turę bez uruchamiania TTS i bez pomiarów syntezy/odtwarzania w raporcie.
 Stosowanie tych reguł przez dany model należy sprawdzać na nagraniach testowych.
 
-Przed akcjami wykonawczymi aplikacja osobno pyta model o plan JSON, bez narzędzi
-wykonawczych. Waliduje nazwy akcji i zapisuje wynik jako `set_action_plan`.
-Model nie musi sam pamiętać o wywołaniu dodatkowego narzędzia. Plan jest
-niezmienny w obrębie tury; pusta lista służy pytaniom informacyjnym.
+Plan ma dodatkowe pole `answer_required`: dla „zadzwoń i powiedz, jakie mam
+utwory” jest ono ustawione na `true`. Po akcjach agent może wtedy pobrać dane
+i udzielić odpowiedzi; pusta odpowiedź lub same białe znaki nie zaliczają tego
+żądania. Polecenie zawierające wyłącznie akcję nadal kończy się bez kolejnego LLM.
+
+Głosowe `pause_music` i `resume_music` ustawiają żądany stan. Powtórzenie pauzy
+nie uruchamia muzyki, a wznowienie już grającej muzyki jej nie zatrzymuje.
+`play_pause` pozostaje przełącznikiem przycisku dotykowego. Błąd ładowania lub
+odtwarzania pliku nie zmienia indeksu utworu: kontroler zwraca niepowodzenie,
+zatrzymuje odtwarzanie, a wznowienie ponownie ładuje ostatni poprawnie wybrany plik.
+
+Nieaktywny strumień mikrofonu kończy nasłuch. Po żądaniu zamknięcia brak nowych
+próbek przez sekundę (dla Vosk co najmniej dwa bloki wejścia) przerywa urwaną
+wypowiedź bez wykonywania jej jako komendy. Przy działającym wejściu rozpoczęta
+wypowiedź nadal kończy się naturalnie; tempo i obsługa końca pliku pozostają bez zmian.
+
+Przed akcjami wykonawczymi agent zapisuje `set_action_plan` z nazwami wszystkich
+żądanych akcji w kolejności wykonania. Plan jest niezmienny w obrębie tury.
 Narzędzia z jednej odpowiedzi modelu wykonują się kolejno (`max_concurrency=1`),
 żeby zaplanowana pauza nie wyprzedziła wyboru utworu.
 Pobranie kontaktów, biblioteki lub miejsc nie zalicza żadnej akcji planu.
@@ -79,16 +86,6 @@ Po sukcesie ostatniej akcji middleware zwraca pustą odpowiedź bez kolejnego
 żądania HTTP do LLM. Nieudana akcja nie przesuwa planu; doprecyzowanie lub
 komunikat błędu nadal mogą zakończyć odpowiedź. Pusta odpowiedź bez wykonania
 całego planu jest błędem, a nie potwierdzeniem realizacji polecenia.
-W trybie mikrofonowym taki błąd zapisuje nieudaną turę i wraca do nasłuchu,
-zamiast zamykać okno. Tryb plikowy i eksperymentalny nadal zgłaszają błąd próby.
-Tak samo obsługiwane jest przekroczenie limitu grafu. Po zablokowaniu akcji
-niezgodnej z nieukończonym planem wykonanie jest przerywane przed następnym
-żądaniem LLM; próba i powód blokady pozostają w raporcie.
-
-Opisy dźwięków w nawiasach kwadratowych, np. `[oklaski]`, są usuwane przed
-przekazaniem transkrypcji do agenta. Sam opis, cisza lub znaki muzyczne nie
-uruchamiają LLM: raport zachowuje wejście i ostrzeżenie ASR, a turę oznacza
-jako przerwaną. W trybie mikrofonowym trwa dalszy nasłuch.
 
 Udane połączenia, wybory utworów i operacje na trasie są zapamiętywane wraz
 z argumentami do końca tury. Identyczna ponowna akcja nie uruchamia kontrolera.
@@ -99,21 +96,18 @@ kroki, aby pomieścić plan i pobieranie danych dla poleceń złożonych; ochron
 przed powtórzeniem zapewnia kod, niezależnie od tego limitu.
 
 Opcjonalne `OLLAMA_NUM_CTX`, `OLLAMA_NUM_PREDICT` i `OLLAMA_REASONING` są opisane
-w `.env.example`. Puste rozmiary kontekstu i generacji pozostawiają ustawienia
-runtime. Reasoning w ręcznej aplikacji domyślnie jest wyłączone; w eksperymencie
-pusta wartość pozostawia ustawienie runtime.
+w `.env.example`. Puste wartości pozostawiają domyślne ustawienia runtime.
 Raporty TXT/JSON zapisują żądane ustawienia przy `llm_start`, a przy `llm_end`
 `done_reason`, metadane serwera i dostępne długości treści oraz reasoning.
 `null` nie oznacza wyłączonego reasoning ani ustalonego rozmiaru kontekstu.
-Kontekstu i limitu generacji nie zwiększano. Wyłączenie reasoning w trybie ręcznym
-sprawdzono na lokalnym Qwenie po odtworzeniu pustej odpowiedzi po planowaniu.
+Domyślnych parametrów generacji nie zmieniono bez dowodu przyczyny błędów.
 [Diagnoza przypadków 4096 tokenów i XML](GENERATION_DIAGNOSIS.md).
 
 Przed wyborem muzyki agent pobiera `get_track_list` w bieżącej turze i dopasowuje
 życzenie do dostępnych tytułów i wykonawców. `select_track` odrzuca tytuł, którego
 nie było na tej liście; kontroler dodatkowo sprawdza, czy nadal jest w bibliotece.
 Wybór od razu uruchamia odtwarzanie, więc po sukcesie nie należy wywoływać
-`play_pause` — zatrzymałoby muzykę. Brak dopasowania lub istotna niejednoznaczność
+`pause_music` — zatrzymałoby muzykę. Brak dopasowania lub istotna niejednoznaczność
 wymagają krótkiego komunikatu albo pytania. Wznowienie, pauza i przejście do
 następnego/poprzedniego utworu nie wymagają pobrania listy.
 

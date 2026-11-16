@@ -24,7 +24,7 @@ from graph import build_graph
 
 
 ActionName = Literal['call_contact', 'navigate_to', 'select_track', 'add_stop',
-                     'play_pause', 'next_track', 'previous_track']
+                     'pause_music', 'resume_music', 'next_track', 'previous_track']
 
 
 class IncompleteExecutionError(RuntimeError):
@@ -33,20 +33,26 @@ class IncompleteExecutionError(RuntimeError):
 
 class ExecutionPlan(BaseModel):
     actions: list[ActionName]
+    answer_required: bool = False
 
 
-PLAN_PROMPT = """Zwróć wyłącznie JSON z planem polecenia użytkownika: {"actions":[...]}
+PLAN_PROMPT = """Zwróć wyłącznie JSON z planem: {"actions":[...],"answer_required":false}
 Uwzględnij TYLKO żądane akcje, w podanej kolejności. Nie wykonuj ich teraz.
 Dostępne akcje: call_contact (połączenie), navigate_to (cel nawigacji),
 select_track (wybór i odtwarzanie utworu), add_stop (przystanek),
-play_pause (pauza/wznowienie), next_track, previous_track.
+pause_music (pauza), resume_music (wznowienie), next_track, previous_track.
 Nie dodawaj pobierania list ani wyszukiwania do planu.
-Dla pytania informacyjnego zwróć {"actions":[]}.
+Dla pytania informacyjnego zwróć {"actions":[],"answer_required":true}.
+answer_required=true oznacza, że użytkownik jawnie prosi też o informację.
+Samo wykonanie akcji bez pytania nie wymaga słownego potwierdzenia.
 "Zadzwoń do Anny" -> {"actions":["call_contact"]}.
 "Włącz Christmas Eve" -> {"actions":["select_track"]}.
 "Włącz jakąś świąteczną muzykę" -> {"actions":["select_track"]}.
-"Jakie masz utwory?" -> {"actions":[]}.
+"Jakie masz utwory?" -> {"actions":[],"answer_required":true}.
 "Ustaw cel i zadzwoń" -> {"actions":["navigate_to","call_contact"]}.
+"Zadzwoń do Roberta i powiedz, jakie mam utwory" -> {"actions":["call_contact"],"answer_required":true}.
+"Pauza" -> {"actions":["pause_music"]}.
+"Wznów muzykę" -> {"actions":["resume_music"]}.
 Przy odpowiedzi doprecyzowującej wykorzystaj kontekst poprzedniej rozmowy.
 """
 
@@ -112,9 +118,9 @@ Muzyka:
    gdy wybór jest istotnie niejednoznaczny, zadaj jedno krótkie pytanie.
 3. select_track od razu uruchamia odtwarzanie. Po success=true zadanie
    włączenia tego utworu jest zakończone: zakończ turę bez wypowiedzi.
-   Nie wywołuj potem play_pause, bo zatrzymasz właśnie włączoną muzykę.
-4. play_pause przełącza stan: odtwarza wstrzymany utwór albo pauzuje grający.
-   Używaj go do wznowienia/pauzy, a nie do wyboru utworu według życzenia.
+   Nie wywołuj potem pause_music, chyba że użytkownik jawnie żąda pauzy.
+4. pause_music zatrzymuje odtwarzanie, resume_music je wznawia. Powtórzenie
+   polecenia zachowuje żądany stan, nie odwraca go.
    Polecenia „następny” i „poprzedni” wykonuj bez pobierania listy.
 """
 
@@ -142,6 +148,7 @@ class Assistant:
     def _reset_execution(self):
         self._execution_lock = RLock()
         self._action_plan = None
+        self._answer_required = False
         self._next_action = 0
         self._completed_actions = {}
         self._response_tools = set()
@@ -150,6 +157,8 @@ class Assistant:
 
     def _execute_graph_action(self, intent: str, action: str, payload: dict):
         name = 'navigate_to' if action == 'set_destination' else action
+        if action == 'set_playback':
+            name = 'resume_music' if payload['playing'] else 'pause_music'
         key = (intent, action, json.dumps(payload, sort_keys=True, ensure_ascii=False))
         with self._execution_lock:
             reason = None
@@ -179,20 +188,26 @@ class Assistant:
         self._reset_execution()
 
         @tool
-        def set_action_plan(actions: list[ActionName]):
+        def set_action_plan(actions: list[ActionName], answer_required: bool = False):
             """Zapisuje kolejność wszystkich żądanych akcji wykonawczych w tej turze. Bez narzędzi pobierających dane. Plan jest niezmienny; zapisz go przed wykonaniem akcji."""
             with self._execution_lock:
                 if self._action_plan is not None:
                     return {'success': False, 'reason': 'invalid_or_locked_plan',
                             'message': 'Plan można ustalić tylko raz w turze.'}
                 self._action_plan = list(actions)
-                return {'success': True, 'actions': self._action_plan}
+                self._answer_required = answer_required
+                return {'success': True, 'actions': self._action_plan, 'answer_required': answer_required}
 
         # Muzyka
         @tool
-        def play_pause():
-            """Przełącza pauzę/odtwarzanie obecnego utworu; po select_track zatrzyma muzykę."""
-            return self._execute_graph_action("music", "play_pause", {})
+        def pause_music():
+            """Pauzuje muzykę. Już zatrzymana muzyka pozostaje zatrzymana."""
+            return self._execute_graph_action('music', 'set_playback', {'playing': False})
+
+        @tool
+        def resume_music():
+            """Wznawia muzykę. Już odtwarzana muzyka pozostaje włączona."""
+            return self._execute_graph_action('music', 'set_playback', {'playing': True})
 
         @tool
         def next_track():
@@ -249,7 +264,7 @@ class Assistant:
         
         @tool
         def select_track(title: str, runtime: Annotated[ToolRuntime | None, InjectedToolArg] = None):
-            """Wybiera i od razu odtwarza utwór. Użyj dokładnego tytułu z get_track_list w tej turze. Po sukcesie nie wywołuj play_pause."""
+            """Wybiera i od razu odtwarza utwór. Użyj dokładnego tytułu z get_track_list w tej turze. Nie pauzuj bez żądania użytkownika."""
             # Parallel calls in one response cannot use a library the model has not seen.
             if runtime is not None and any(
                 call['name'] == 'get_track_list'
@@ -343,7 +358,8 @@ class Assistant:
         return [
             set_action_plan,
             # Muzyka
-            play_pause, 
+            pause_music,
+            resume_music,
             next_track, 
             previous_track, 
             search_track, 
@@ -365,7 +381,8 @@ class Assistant:
     def initialize_agent(self):
         @wrap_model_call
         def finish_completed_plan(request, handler):
-            if self._action_plan and self._next_action == len(self._action_plan):
+            actions_done = self._action_plan is not None and self._next_action == len(self._action_plan)
+            if self._action_plan and actions_done and not self._answer_required:
                 return AIMessage(content='')
             if self._blocked_action_reason is not None:
                 raise IncompleteExecutionError(
@@ -374,6 +391,14 @@ class Assistant:
             planning = self._action_plan is None
             if planning:
                 request = request.override(system_message=SystemMessage(content=PLAN_PROMPT), tools=[])
+            elif actions_done and self._answer_required:
+                request = request.override(
+                    tools=[tool for tool in request.tools if tool.name in (
+                        'get_contacts', 'get_track_list', 'search_track', 'get_places_list')],
+                    system_message=SystemMessage(content=SYSTEM_PROMPT_SHORT +
+                        '\nŻądane akcje wykonano. Pozostała jawnie zamówiona odpowiedź informacyjna. '
+                        'Pobierz potrzebne dane i odpowiedz krótko po polsku; nie kończ ciszą.'),
+                )
             response = handler(request)
             if planning:
                 message = response.result[-1]
@@ -436,8 +461,8 @@ class Assistant:
                     for message in messages:
                         if isinstance(message, AIMessage) and not message.tool_calls:
                             final_text = message.text
-            if not final_text and not (
-                self._action_plan and self._next_action == len(self._action_plan)
+            if not final_text.strip() and not (
+                self._action_plan and self._next_action == len(self._action_plan) and not self._answer_required
             ):
                 raise IncompleteExecutionError('Model zakończył turę bez wykonania planu i bez komunikatu dla użytkownika.')
         except Exception as error:
@@ -457,5 +482,6 @@ class Assistant:
             report.emit("agent_end", turn_id=turn_id, success=True, text=final_text,
                         completion_reason='plan_completed' if self._action_plan and
                         self._next_action == len(self._action_plan) else 'model_response',
-                        planned_actions=self._action_plan, completed_action_count=self._next_action)
+                        planned_actions=self._action_plan, completed_action_count=self._next_action,
+                        answer_required=self._answer_required)
         return final_text

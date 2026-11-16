@@ -336,7 +336,8 @@ def music_listing():
 
 @pytest.mark.parametrize('problem', ['no_list', 'late_list', 'failed_list', 'wrong_turn',
                                       'wrong_run', 'missing_title', 'bad_output', 'play_pause',
-                                      'wrong_title', 'duplicate', 'extra_toggle', 'same_response'])
+                                      'wrong_title', 'duplicate', 'extra_toggle', 'extra_pause',
+                                      'extra_resume', 'same_response'])
 def test_music_evaluation_requires_list_then_one_matching_selection(problem):
     from runner import evaluate_session
     listing = music_listing()
@@ -364,9 +365,10 @@ def test_music_evaluation_requires_list_then_one_matching_selection(problem):
         action[0]['arguments'] = {'title': 'Chill song'}
     elif problem == 'duplicate':
         action += [dict(event, run_id='second') for event in action]
-    elif problem == 'extra_toggle':
-        action += [dict(type='tool_start', turn_id=1, run_id='toggle', name='play_pause', arguments={}),
-                   dict(type='tool_end', turn_id=1, run_id='toggle', name='play_pause', success=True)]
+    elif problem in ('extra_toggle', 'extra_pause', 'extra_resume'):
+        name = {'extra_toggle': 'play_pause', 'extra_pause': 'pause_music', 'extra_resume': 'resume_music'}[problem]
+        action += [dict(type='tool_start', turn_id=1, run_id='toggle', name=name, arguments={}),
+                   dict(type='tool_end', turn_id=1, run_id='toggle', name=name, success=True)]
     elif problem == 'same_response':
         listing.insert(0, dict(type='llm_end', turn_id=1, tools=['get_track_list', 'select_track']))
     data = {'turns': [{'id': 1, 'status': 'completed'}],

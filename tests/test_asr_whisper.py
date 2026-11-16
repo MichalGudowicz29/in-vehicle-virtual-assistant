@@ -102,15 +102,19 @@ def test_model_loaded_once_from_local_weights(monkeypatch, tmp_path):
         whisper._get_model('medium')
 
 
-def test_microphone_uses_native_rate_and_releases_stream_after_decode(monkeypatch):
+@pytest.mark.parametrize('stop_after_speech', [False, True])
+def test_microphone_uses_native_rate_and_releases_stream_after_decode(monkeypatch, stop_after_speech):
     import sounddevice
     import webrtcvad
     from asr import listen
     whisper, received = setup_decode(monkeypatch)
     closed = []
+    stop = Event()
     class Vad:
         def is_speech(self, pcm, rate):
             assert rate == 16000
+            if stop_after_speech:
+                stop.set()
             return np.mean(np.abs(np.frombuffer(pcm, '<i2'))) > 1000
     class Stream:
         def __init__(self, **kwargs):
@@ -125,7 +129,7 @@ def test_microphone_uses_native_rate_and_releases_stream_after_decode(monkeypatc
     monkeypatch.setattr(sounddevice, 'query_devices', lambda **kwargs: {'default_samplerate': 48000})
     monkeypatch.setattr(sounddevice, 'InputStream', Stream)
     monkeypatch.setattr(webrtcvad, 'Vad', lambda mode: Vad())
-    assert listen(Event(), asr='whisper-small') == 'Włącz muzykę'
+    assert listen(stop, asr='whisper-small') == 'Włącz muzykę'
     assert len(received) == 1
     assert received[0].dtype == np.float32
     assert closed == [True]
@@ -166,3 +170,59 @@ def test_cancel_during_model_loading_does_not_open_microphone(monkeypatch):
     monkeypatch.setattr(whisper, '_get_model', load)
     monkeypatch.setattr(sounddevice, 'query_devices', lambda **kwargs: pytest.fail('Microphone must not open'))
     assert listen(stop, asr='whisper-small') is None
+
+
+@pytest.mark.parametrize('speech', [False, True])
+@pytest.mark.parametrize('disconnected', [False, True])
+def test_microphone_missing_input_never_decodes_truncated_command(monkeypatch, speech, disconnected):
+    import queue
+    import sounddevice
+    import webrtcvad
+    from asr import listen
+
+    whisper, received = setup_decode(monkeypatch)
+    stop = Event()
+    clock = [0.0]
+    waits = []
+
+    class Queue(queue.Queue):
+        def get(self, timeout=None):
+            try:
+                return super().get(block=False)
+            except queue.Empty:
+                waits.append(timeout)
+                assert len(waits) <= 20, 'ASR kept waiting after microphone stalled'
+                clock[0] += timeout
+                stream.active = not disconnected
+                if not disconnected:
+                    stop.set()
+                raise
+
+    class Stream:
+        active = True
+        def __init__(self, **kwargs):
+            self.callback = kwargs['callback']
+        def __enter__(self):
+            if speech:
+                self.callback(np.full((whisper.FRAME * 3, 1), .5, dtype=np.float32), 0, None, None)
+            return self
+        def __exit__(self, *args):
+            self.active = False
+
+    stream = None
+    def open_stream(**kwargs):
+        nonlocal stream
+        stream = Stream(**kwargs)
+        return stream
+
+    monkeypatch.setattr(whisper, 'Queue', Queue)
+    monkeypatch.setattr(whisper, 'perf_counter', lambda: clock[0])
+    monkeypatch.setattr(sounddevice, 'query_devices', lambda **kwargs: {'default_samplerate': 16000})
+    monkeypatch.setattr(sounddevice, 'InputStream', open_stream)
+    monkeypatch.setattr(webrtcvad, 'Vad', lambda mode: SimpleNamespace(is_speech=lambda pcm, rate: True))
+
+    assert listen(stop, asr='whisper-small') is None
+    assert received == []
+    assert waits and all(wait == .1 for wait in waits)
+    assert clock[0] <= 1.2
+    assert not stream.active

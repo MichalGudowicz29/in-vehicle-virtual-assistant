@@ -9,6 +9,8 @@ def music_node(state: HMIState, car: Any) -> dict[str, dict[str, Any]]:
 
     if action == "play_pause":
         requested = car.music.play_pause()
+    elif action == 'set_playback':
+        requested = car.music.set_playback(payload['playing'])
     elif action == "next_track":
         requested = car.music.next_track()
     elif action == "previous_track":

@@ -34,6 +34,7 @@ class MusicController(QObject):
         pygame.mixer.music.load(self._tracks[self._current_track_index]["path"])
         pygame.mixer.music.play()
         pygame.mixer.music.pause()
+        self._track_loaded = True
         
     # Muzyka
     
@@ -71,18 +72,10 @@ class MusicController(QObject):
         if not self._tracks:
             return False
 
-        self._current_track_index = (
+        index = (
             self._current_track_index + 1
         ) % len(self._tracks)
-        
-        pygame.mixer.music.load(self._tracks[self._current_track_index]["path"])
-        pygame.mixer.music.play()
-        self._isPlaying = True
-        self.isPlayingChanged.emit()
-
-        self.currentTrackChanged.emit()
-        print("Next track")
-        return True
+        return self._load_track(index)
 
     # Bezpiecznie watkowa obsluga poprzedniego utworu
     @Slot(result=bool)
@@ -103,16 +96,10 @@ class MusicController(QObject):
         if not self._tracks:
             return False
 
-        self._current_track_index = (
+        index = (
             self._current_track_index - 1
         ) % len(self._tracks)
-        pygame.mixer.music.load(self._tracks[self._current_track_index]["path"])
-        pygame.mixer.music.play()
-        self._isPlaying = True
-        self.isPlayingChanged.emit()
-        self.currentTrackChanged.emit()
-        print("Previous track")
-        return True
+        return self._load_track(index)
     
     # Bezpiecznie watkowa obsluga wyboru utworu
     @Slot(str, result=bool)
@@ -135,15 +122,60 @@ class MusicController(QObject):
         if index == -1:
             return False
         
+        return self._load_track(index)
+
+    def _load_track(self, index):
+        # A failed load can discard the previous audio; never resume an uncommitted track.
+        self._track_loaded = False
+        try:
+            pygame.mixer.music.load(self._tracks[index]["path"])
+            pygame.mixer.music.play()
+        except (pygame.error, OSError):
+            try:
+                pygame.mixer.music.stop()
+            except pygame.error:
+                pass
+            if self._isPlaying:
+                self._isPlaying = False
+                self.isPlayingChanged.emit()
+            return False
+
+        self._track_loaded = True
         self._current_track_index = index
-        pygame.mixer.music.load(self._tracks[self._current_track_index]["path"])
-        pygame.mixer.music.play()
         self._isPlaying = True
         self.isPlayingChanged.emit()
         self.currentTrackChanged.emit()
-        track = self._tracks[index]
-        
-        print(f"Selected track: {track['title']} by {track['artist']}")
+        return True
+
+    @Slot(bool, result=bool)
+    def set_playback(self, playing: bool):
+        if QThread.currentThread() != self.thread():
+            return QMetaObject.invokeMethod(
+                self,
+                "_set_playback",
+                Qt.ConnectionType.BlockingQueuedConnection,
+                Q_RETURN_ARG(bool),
+                Q_ARG(bool, playing),
+            )
+
+        return self._set_playback(playing)
+
+    @Slot(bool, result=bool)
+    def _set_playback(self, playing: bool):
+        if self._isPlaying == playing:
+            return True
+        if playing and not self._track_loaded:
+            return self._load_track(self._current_track_index)
+
+        try:
+            if playing:
+                pygame.mixer.music.unpause()
+            else:
+                pygame.mixer.music.pause()
+        except pygame.error:
+            return False
+        self._isPlaying = playing
+        self.isPlayingChanged.emit()
         return True
         
     # Bezpiecznie watkowa obsluga pauzy/odtwarzania
@@ -162,14 +194,4 @@ class MusicController(QObject):
     # metoda do zmiany stanu odtwarzania wywolywana przez play_pause zeby bylo bezpiecznie watkowo
     @Slot(result=bool)
     def _play_pause(self):
-        self._isPlaying = not self._isPlaying
-        self.isPlayingChanged.emit()
-
-        if self._isPlaying:
-            pygame.mixer.music.unpause()
-            print("Music playing")
-        else:
-            pygame.mixer.music.pause()
-            print("Music paused")
-
-        return True
+        return self._set_playback(not self._isPlaying)

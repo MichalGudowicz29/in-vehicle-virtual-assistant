@@ -106,7 +106,7 @@ def test_unrequested_toggle_after_selection_is_blocked(execution, qt_call):
         tool_response(('set_action_plan', {'actions': ['select_track', 'navigate_to']})),
         tool_response(('get_track_list', {})),
         tool_response(('select_track', {'title': 'Christmas Eve'})),
-        tool_response(('play_pause', {})),
+        tool_response(('pause_music', {})),
         tool_response(('navigate_to', {'street': 'Żołnierska', 'city': 'Szczecin', 'number': '47'})),
     )
     with pytest.raises(RuntimeError, match='unplanned_action'):
@@ -114,7 +114,7 @@ def test_unrequested_toggle_after_selection_is_blocked(execution, qt_call):
                                             turn_id=report.begin_turn()))
     assert car.music.isPlaying is True
     event = next(event for event in report.snapshot()['events']
-                 if event['type'] == 'tool_end' and event['name'] == 'play_pause')
+                 if event['type'] == 'tool_end' and event['name'] == 'pause_music')
     assert json.loads(event['output'])['reason'] == 'unplanned_action'
     assert model.requests == 4
     assert car.navigation.destination == ''
@@ -134,11 +134,11 @@ def test_failed_action_does_not_complete_plan(execution, qt_call):
 def test_plan_cannot_be_shortened_and_explicit_pause_is_allowed(execution):
     assistant, car, model, report = execution()
     tools = {tool.name: tool for tool in assistant.build_tools()}
-    assert tools['set_action_plan'].invoke({'actions': ['select_track', 'play_pause']})['success'] is True
+    assert tools['set_action_plan'].invoke({'actions': ['select_track', 'pause_music']})['success'] is True
     assert tools['set_action_plan'].invoke({'actions': ['select_track']})['success'] is False
     tools['get_track_list'].invoke({})
     assert tools['select_track'].invoke({'title': 'Christmas Eve'})['success'] is True
-    assert tools['play_pause'].invoke({})['success'] is True
+    assert tools['pause_music'].invoke({})['success'] is True
     assert car.music.isPlaying is False
 
 
@@ -195,9 +195,9 @@ def test_planned_selection_then_pause_preserves_order_in_one_tool_batch(executio
     from threading import Event
 
     assistant, car, model, report = execution(
-        tool_response(('set_action_plan', {'actions': ['select_track', 'play_pause']})),
+        tool_response(('set_action_plan', {'actions': ['select_track', 'pause_music']})),
         tool_response(('get_track_list', {})),
-        tool_response(('select_track', {'title': 'Christmas Eve'}), ('play_pause', {})),
+        tool_response(('select_track', {'title': 'Christmas Eve'}), ('pause_music', {})),
     )
     pause_started = Event()
     original = assistant._execute_graph_action
@@ -252,7 +252,7 @@ def test_empty_plan_cannot_loop_through_side_effects(execution, qt_call):
         tool_response(('get_contacts', {})),
         tool_response(('get_track_list', {})),
         tool_response(('select_track', {'title': 'Christmas Eve'})),
-        tool_response(('play_pause', {})),
+        tool_response(('pause_music', {})),
     )
     with pytest.raises(RuntimeError, match='unplanned_action'):
         qt_call(lambda: assistant.handle_text('Niezrozumiałe wejście', report=report,
@@ -286,7 +286,7 @@ def test_new_turn_recovers_real_agent_checkpoint_after_blocked_action(execution,
 def test_blocked_action_stops_remaining_effects_in_same_batch(execution, qt_call):
     assistant, car, model, report = execution(
         AIMessage(content='{"actions":["call_contact"]}'),
-        tool_response(('play_pause', {}),
+        tool_response(('pause_music', {}),
                       ('call_contact', {'name': 'Robert Lewandowski', 'number_type': 'mobile'})),
     )
     with pytest.raises(RuntimeError, match='unplanned_action'):
@@ -294,3 +294,47 @@ def test_blocked_action_stops_remaining_effects_in_same_batch(execution, qt_call
     assert car.contacts.currentContactName == ''
     assert car.music.isPlaying is False
     assert model.requests == 2
+
+
+def test_mixed_action_and_question_finishes_only_after_answer(execution, qt_call):
+    assistant, car, model, report = execution(
+        AIMessage(content='{"actions":["call_contact"],"answer_required":true}'),
+        tool_response(('call_contact', {'name': 'Robert Lewandowski', 'number_type': 'mobile'})),
+        tool_response(('get_track_list', {})),
+        AIMessage(content='Masz Christmas Eve, Chill song i Dynamic music.'),
+    )
+    answer = qt_call(lambda: assistant.handle_text('Zadzwoń do Roberta i powiedz, jakie mam utwory.',
+                                                  report=report, turn_id=report.begin_turn()))
+    assert answer == 'Masz Christmas Eve, Chill song i Dynamic music.'
+    assert car.contacts.currentContactName == 'Robert Lewandowski'
+    assert model.requests == 4
+    assert report.snapshot()['events'][-1]['answer_required'] is True
+
+
+@pytest.mark.parametrize('answer', ['', ' ', '\n'])
+def test_requested_answer_cannot_be_replaced_with_silence(execution, qt_call, answer):
+    assistant, car, model, report = execution(
+        AIMessage(content='{"actions":["call_contact"],"answer_required":true}'),
+        tool_response(('call_contact', {'name': 'Robert Lewandowski', 'number_type': 'mobile'})),
+        AIMessage(content=answer),
+    )
+    with pytest.raises(RuntimeError, match='bez komunikatu'):
+        qt_call(lambda: assistant.handle_text('Zadzwoń i podaj listę utworów.',
+                                            report=report, turn_id=report.begin_turn()))
+    assert model.requests == 3
+
+
+@pytest.mark.parametrize('name, initially_playing, expected', [
+    ('pause_music', False, False), ('pause_music', True, False),
+    ('resume_music', False, True), ('resume_music', True, True),
+])
+def test_voice_playback_sets_requested_state(execution, qt_call, name, initially_playing, expected):
+    assistant, car, model, report = execution(
+        AIMessage(content=json.dumps({'actions': [name]})), tool_response((name, {})),
+    )
+    car.music.set_playback(initially_playing)
+    assert qt_call(lambda: assistant.handle_text('Pauza lub wznów zgodnie z poleceniem.',
+                                                report=report, turn_id=report.begin_turn())) == ''
+    assert car.music.isPlaying is expected
+    assert model.requests == 2
+    assert 'play_pause' not in {tool.name for tool in assistant.build_tools()}

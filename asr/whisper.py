@@ -42,7 +42,7 @@ def _file_frames(audio, stop_event):
         yield block, started + offset / RATE, None
 
 
-def _microphone_frames():
+def _microphone_frames(stop_event):
     import sounddevice as sd
     import soxr
 
@@ -55,17 +55,23 @@ def _microphone_frames():
                     if time is not None else None)
         queue.put((indata[:, 0].copy(), captured, str(status) if status else None))
 
-    with sd.InputStream(samplerate=rate, blocksize=round(rate * .03), dtype='float32',
-                        channels=1, callback=callback):
+    stream = sd.InputStream(samplerate=rate, blocksize=round(rate * .03), dtype='float32',
+                            channels=1, callback=callback)
+    with stream:
         pending = np.empty(0, dtype=np.float32)
         started = None
         sent = 0
+        last_audio_at = perf_counter()
         while True:
             try:
                 audio, captured, warning = queue.get(timeout=.1)
             except Empty:
+                if not stream.active or (stop_event.is_set() and
+                                         perf_counter() - last_audio_at >= 1.0):
+                    return
                 yield None, None, None
                 continue
+            last_audio_at = perf_counter()
             if started is None:
                 started = captured
             if warning:
@@ -94,7 +100,7 @@ def asr_whisper(stop_event, *, model, audio_file=None, on_event=None):
     decoder = _get_model(model)
     if stop_event.is_set():
         return None
-    frames = _file_frames(audio, stop_event) if audio is not None else _microphone_frames()
+    frames = _file_frames(audio, stop_event) if audio is not None else _microphone_frames(stop_event)
     try:
         return _recognize(frames, decoder, stop_event, on_event, audio_file is not None)
     finally:
@@ -171,7 +177,8 @@ def _recognize(frames, decoder, stop_event, on_event, is_file):
             buffer = []
             speech_frames = silence_frames = 0
             speech_start = speech_end = None
-    if active and speech_frames >= MIN_SPEECH_FRAMES:
+    # Only a file EOF is a valid endpoint; a lost microphone leaves a truncated turn.
+    if is_file and active and speech_frames >= MIN_SPEECH_FRAMES:
         text = decode()
         if text:
             return text
