@@ -10,6 +10,54 @@ import wave
 import pytest
 
 
+@pytest.mark.parametrize(('experiment', 'override', 'expected', 'reasoning', 'expected_reasoning'), [
+    (False, None, 'whisper-small', '', False),
+    (False, 'vosk', 'vosk', '', False),
+    (True, None, 'vosk', '', None),
+    (False, None, 'whisper-small', 'true', True),
+])
+def test_cli_selects_manual_whisper_default_and_preserves_experiment_config(
+        tmp_path, music_file, experiment, override, expected, reasoning, expected_reasoning):
+    path = tmp_path / 'speech.wav'
+    path.touch()
+    output = tmp_path / 'reports'
+    script = '''
+import runpy
+import sys
+import pygame
+import asr
+import voice_worker
+import config
+
+music_file, output, audio_file, experiment, override, expected, expected_reasoning = sys.argv[1:]
+load = pygame.mixer.music.load
+pygame.mixer.music.load = lambda path: load(music_file)
+voice_worker.Assistant = lambda car: None
+def listen(*args, **kwargs):
+    assert kwargs['asr'] == expected, kwargs['asr']
+    assert str(config.LLM_GENERATION['reasoning']) == expected_reasoning
+    print('LISTENING', flush=True)
+    return None
+asr.listen = asr.listen_file = listen
+sys.argv = ['main.py', '--report-dir', output]
+if experiment == 'True':
+    sys.argv.extend(['--experiment', '--audio-file', audio_file])
+if override != 'None':
+    sys.argv.extend(['--asr', override])
+runpy.run_path('main.py', run_name='__main__')
+'''
+    result = subprocess.run(
+        [sys.executable, '-c', script, str(music_file), str(output), str(path),
+         str(experiment), str(override), expected, str(expected_reasoning)],
+        env={**os.environ, 'ASR_MODEL': 'vosk', 'QT_QPA_PLATFORM': 'offscreen',
+             'SDL_AUDIODRIVER': 'dummy', 'OLLAMA_REASONING': reasoning}, text=True, capture_output=True, timeout=30)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert f'ASR: {expected}' in result.stdout
+    assert result.stdout.index(f'ASR: {expected}') < result.stdout.index('LISTENING')
+    data = json.loads(next(output.glob('*.json')).read_text())
+    assert data['models']['asr'].startswith('Whisper small' if expected == 'whisper-small' else 'Vosk')
+
+
 @pytest.mark.parametrize('asr_model', ['vosk', 'whisper-small'])
 @pytest.mark.parametrize('experiment', [False, True])
 def test_cli_file_turn_finishes_after_response_and_writes_report(tmp_path, music_file, asr_model, experiment):

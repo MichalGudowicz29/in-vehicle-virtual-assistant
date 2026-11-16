@@ -1,5 +1,139 @@
 from CarSystem.car_system import CarSystem
 from voice_worker import VoiceWorker
+import pytest
+from assistant import IncompleteExecutionError
+from langgraph.errors import GraphRecursionError
+
+
+@pytest.mark.parametrize('error_type, message', [
+    (IncompleteExecutionError, 'Model zwrócił pusty plan'),
+    (GraphRecursionError, 'Recursion limit of 24 reached'),
+])
+def test_incomplete_manual_turn_is_failed_and_next_turn_still_completes(monkeypatch, capsys, tmp_path, error_type, message):
+    import json
+    from assistant import IncompleteExecutionError
+    from session_report import SessionReport
+
+    report = SessionReport()
+    texts = iter(['pierwsza komenda', 'druga komenda', None])
+    actions = []
+    def listen(stop, on_event, **kwargs):
+        text = next(texts)
+        if text:
+            on_event('transcription_ready', text=text)
+        return text
+    class FakeAssistant:
+        def __init__(self, car):
+            pass
+        def handle_text(self, text, *, report, turn_id):
+            assert 'finished' not in actions
+            actions.append(text)
+            if turn_id == 1:
+                raise error_type(message)
+            return 'Gotowe'
+    monkeypatch.setattr('asr.listen', listen)
+    monkeypatch.setattr('voice_worker.Assistant', FakeAssistant)
+    monkeypatch.setattr('voice_worker.time.sleep', lambda _: None)
+    worker = VoiceWorker(None, report=report)
+    monkeypatch.setattr(worker, '_speak_response', lambda text, **kwargs: actions.append(text))
+    worker.finished.connect(lambda: actions.append('finished'))
+
+    worker.run()
+
+    assert actions == ['pierwsza komenda', 'druga komenda', 'Gotowe', 'finished']
+    printed = capsys.readouterr().err
+    assert message in printed
+    assert 'Słucham dalej' in printed
+    report.save(tmp_path)
+    data = json.loads(next(tmp_path.glob('*.json')).read_text())
+    assert data['counts'] == {'completed': 1, 'failed': 1, 'interrupted': 0}
+    assert [turn['status'] for turn in data['turns']] == ['failed', 'completed']
+    errors = [event for event in data['events'] if event['type'] == 'session_error']
+    assert len(errors) == 1
+    assert errors[0]['turn_id'] == 1
+    assert errors[0]['error'] == message
+
+
+@pytest.mark.parametrize('error_type', [IncompleteExecutionError, GraphRecursionError])
+def test_incomplete_file_turn_propagates_and_records_failure(monkeypatch, tmp_path, error_type):
+    import pytest
+    from assistant import IncompleteExecutionError
+    from session_report import SessionReport
+
+    path = tmp_path / 'speech.wav'
+    report = SessionReport(audio_file=path)
+    class FakeAssistant:
+        def __init__(self, car):
+            pass
+        def handle_text(self, text, **kwargs):
+            raise error_type('Model zwrócił pusty plan')
+    monkeypatch.setattr('voice_worker.Assistant', FakeAssistant)
+    monkeypatch.setattr('asr.listen_file', lambda *args, **kwargs: 'test')
+    worker = VoiceWorker(None, report=report, audio_file=path)
+    finished = []
+    worker.finished.connect(lambda: finished.append(True))
+
+    with pytest.raises(error_type, match='pusty plan'):
+        worker.run()
+
+    assert finished == [True]
+    assert report.snapshot()['counts']['failed'] == 1
+
+
+@pytest.mark.parametrize('annotation', ['[oklaski]', ' [muzyka] [brawa] ', '♪ ... ♫'])
+def test_non_speech_is_recorded_without_calling_agent_and_listening_continues(monkeypatch, annotation):
+    from session_report import SessionReport
+
+    report = SessionReport()
+    texts = iter([annotation, 'Zadzwoń do Roberta', None])
+    received = []
+
+    def listen(stop, on_event, **kwargs):
+        text = next(texts)
+        if text is not None:
+            on_event('transcription_ready', text=text)
+        return text
+
+    class Agent:
+        def __init__(self, car):
+            pass
+
+        def handle_text(self, text, **kwargs):
+            received.append(text)
+            return ''
+
+    monkeypatch.setattr('asr.listen', listen)
+    monkeypatch.setattr('voice_worker.Assistant', Agent)
+    worker = VoiceWorker(None, report=report)
+    worker.run()
+    assert received == ['Zadzwoń do Roberta']
+    data = report.snapshot()
+    assert data['counts'] == {'completed': 1, 'failed': 0, 'interrupted': 1}
+    assert any(event['type'] == 'asr_warning' and event['turn_id'] == 1 for event in data['events'])
+    assert any(event.get('text') == annotation for event in data['events'])
+
+
+@pytest.mark.parametrize('text, expected', [
+    (' [muzyka] Włącz Christmas Eve ', 'Włącz Christmas Eve'),
+    ('Włącz Christmas Eve (live)', 'Włącz Christmas Eve (live)'),
+])
+def test_annotation_filter_preserves_spoken_command(monkeypatch, text, expected):
+    received = []
+
+    class Agent:
+        def __init__(self, car):
+            pass
+
+        def handle_text(self, text, **kwargs):
+            received.append(text)
+            worker.stop()
+            return ''
+
+    monkeypatch.setattr('asr.listen', lambda *args, **kwargs: text)
+    monkeypatch.setattr('voice_worker.Assistant', Agent)
+    worker = VoiceWorker(None)
+    worker.run()
+    assert received == [expected]
 
 
 def test_voice_worker_sends_microphone_transcription_to_assistant(monkeypatch):

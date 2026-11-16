@@ -60,8 +60,10 @@ def test_chatollama_executes_tools_and_reports_server_token_counts(monkeypatch, 
         assert body['options']['num_ctx'] == 8192
         assert body['options']['num_predict'] == 128
         assert body['think'] is False
-        assert 'get_track_list' in [tool['function']['name'] for tool in body['tools']]
-        if len(requests) == 1:
+        if not body.get('tools'):
+            message = {'role': 'assistant', 'content': '{"actions":[]}'}
+        elif len(requests) == 2:
+            assert 'get_track_list' in [tool['function']['name'] for tool in body['tools']]
             message = {'role': 'assistant', 'content': '', 'tool_calls': [
                 {'function': {'name': 'get_track_list', 'arguments': {}}},
             ]}
@@ -80,21 +82,22 @@ def test_chatollama_executes_tools_and_reports_server_token_counts(monkeypatch, 
     report = SessionReport()
     response = assistant.handle_text('Jakie masz utwory?', report=report, turn_id=report.begin_turn())
     assert response == 'Dostępne są trzy utwory.'
-    assert len(requests) == 2
+    assert len(requests) == 3
     data = report.snapshot()
-    assert data['metrics']['Pojedyncze żądanie LLM']['n'] == 2
+    assert data['metrics']['Pojedyncze żądanie LLM']['n'] == 3
     assert data['metrics']['Narzędzie: get_track_list']['n'] == 1
-    assert data['tokens'] == {'input_tokens': 20, 'output_tokens': 6, 'total_tokens': 26,
-                              'known_requests': 2, 'missing_requests': 0}
+    assert data['tokens'] == {'input_tokens': 30, 'output_tokens': 9, 'total_tokens': 39,
+                              'known_requests': 3, 'missing_requests': 0}
     llm_start = next(event for event in data['events'] if event['type'] == 'llm_start')
     assert llm_start['generation_settings']['values']['num_ctx'] == 8192
     assert all(event['done_reason'] == 'stop' for event in data['events'] if event['type'] == 'llm_end')
-    event = next(event for event in data['events'] if event['type'] == 'tool_end')
+    event = next(event for event in data['events'] if event['type'] == 'tool_end' and event['name'] == 'get_track_list')
     assert event['success'] is True
-    assert event['output'] == requests[1]['messages'][-1]['content']
+    assert event['output'] == requests[2]['messages'][-1]['content']
     txt, json_path = report.save(tmp_path)
-    saved_event = next(e for e in json.loads(json_path.read_text())['events'] if e['type'] == 'tool_end')
-    assert saved_event['output'] == requests[1]['messages'][-1]['content']
+    saved_event = next(e for e in json.loads(json_path.read_text())['events']
+                       if e['type'] == 'tool_end' and e['name'] == 'get_track_list')
+    assert saved_event['output'] == requests[2]['messages'][-1]['content']
     assert 'Wynik przekazany do LLM:' in txt.read_text()
     for track in json.loads(event['output'])['tracks']:
         assert track['title'] in txt.read_text()
@@ -151,6 +154,8 @@ def test_music_library_authorization_expires_between_real_agent_turns(monkeypatc
         {'role': 'assistant', 'content': '', 'tool_calls': [
             {'function': {'name': 'select_track', 'arguments': {'title': 'Chill song'}}}]},
         {'role': 'assistant', 'content': '', 'tool_calls': [
+            {'function': {'name': 'set_action_plan', 'arguments': {'actions': ['select_track']}}}]},
+        {'role': 'assistant', 'content': '', 'tool_calls': [
             {'function': {'name': 'select_track', 'arguments': {'title': 'Christmas Eve'}}}]},
         {'role': 'assistant', 'content': 'Nie wybrano utworu.'},
     ])
@@ -193,7 +198,9 @@ def test_music_cannot_be_selected_in_same_model_response_as_library_request(monk
     def respond(request):
         requests.append(json.loads(request.content))
         message = {'role': 'assistant', 'content': 'Nie wybrano utworu.'}
-        if len(requests) == 1:
+        if not requests[-1].get('tools'):
+            message['content'] = '{"actions":["select_track"]}'
+        elif len(requests) == 2:
             message['tool_calls'] = [
                 {'function': {'name': 'get_track_list', 'arguments': {}}},
                 {'function': {'name': 'select_track', 'arguments': {'title': 'Chill song'}}},
@@ -214,4 +221,4 @@ def test_music_cannot_be_selected_in_same_model_response_as_library_request(monk
     assert car.music.currentTrackIndex == 0
     assert car.music.isPlaying is False
     # The last tool result is the rejected selection, after the library result.
-    assert json.loads(requests[1]['messages'][-1]['content'])['success'] is False
+    assert json.loads(requests[2]['messages'][-1]['content'])['success'] is False

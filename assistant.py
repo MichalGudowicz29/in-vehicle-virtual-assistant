@@ -14,11 +14,41 @@ from langchain.tools import InjectedToolArg, ToolRuntime, tool # type: ignore
 from langgraph.checkpoint.memory import InMemorySaver
 
 from typing import Annotated, Literal
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, SystemMessage
+from pydantic import BaseModel, ValidationError
+from uuid import uuid4
 from langchain_ollama import ChatOllama
 from session_callbacks import SessionCallbacks
 from langchain.agents.middleware.types import InputAgentState
 from graph import build_graph
+
+
+ActionName = Literal['call_contact', 'navigate_to', 'select_track', 'add_stop',
+                     'play_pause', 'next_track', 'previous_track']
+
+
+class IncompleteExecutionError(RuntimeError):
+    """The model did not produce an executable plan or a completed response."""
+
+
+class ExecutionPlan(BaseModel):
+    actions: list[ActionName]
+
+
+PLAN_PROMPT = """Zwróć wyłącznie JSON z planem polecenia użytkownika: {"actions":[...]}
+Uwzględnij TYLKO żądane akcje, w podanej kolejności. Nie wykonuj ich teraz.
+Dostępne akcje: call_contact (połączenie), navigate_to (cel nawigacji),
+select_track (wybór i odtwarzanie utworu), add_stop (przystanek),
+play_pause (pauza/wznowienie), next_track, previous_track.
+Nie dodawaj pobierania list ani wyszukiwania do planu.
+Dla pytania informacyjnego zwróć {"actions":[]}.
+"Zadzwoń do Anny" -> {"actions":["call_contact"]}.
+"Włącz Christmas Eve" -> {"actions":["select_track"]}.
+"Włącz jakąś świąteczną muzykę" -> {"actions":["select_track"]}.
+"Jakie masz utwory?" -> {"actions":[]}.
+"Ustaw cel i zadzwoń" -> {"actions":["navigate_to","call_contact"]}.
+Przy odpowiedzi doprecyzowującej wykorzystaj kontekst poprzedniej rozmowy.
+"""
 
 
 SYSTEM_PROMPT_SHORT = """
@@ -28,12 +58,8 @@ tylko wtedy, gdy bez jego odpowiedzi nie możesz poprawnie wykonać zadania.
 Użytkownik ma móc skupić się na prowadzeniu i swoich zadaniach.
 
 Zasady:
-- Przed akcjami wykonawczymi zapisz set_action_plan z uporządkowaną listą
-  wszystkich żądanych akcji. Dla polecenia złożonego uwzględnij każdą z nich.
-  Plan zawiera nazwy akcji, bez narzędzi pobierających dane. Możesz najpierw
-  pobrać dane lub dopytać użytkownika. Ustalony plan jest niezmienny w tej turze.
-  Nie wykonuj skutków ubocznych w tym samym wywołaniu co zapis planu.
-  Przykłady poniżej pomijają zapis planu, ale nie zwalniają z tej zasady.
+- Plan został już ustalony przez aplikację. Wykonaj go za pomocą narzędzi.
+  Nie zapisuj ponownie set_action_plan. Pobieraj potrzebne dane przed akcjami.
 - Jasne polecenie wykonaj od razu. Nie proś o zgodę na żądaną czynność.
   Wykonuj wyłącznie żądane działania, bez zgadywania istotnych danych.
 - Po udanym wykonaniu całego żądanego zadania zakończ turę z pustą treścią
@@ -119,6 +145,7 @@ class Assistant:
         self._next_action = 0
         self._completed_actions = {}
         self._response_tools = set()
+        self._blocked_action_reason = None
         self._listed_track_titles = set()
 
     def _execute_graph_action(self, intent: str, action: str, payload: dict):
@@ -126,7 +153,9 @@ class Assistant:
         key = (intent, action, json.dumps(payload, sort_keys=True, ensure_ascii=False))
         with self._execution_lock:
             reason = None
-            if 'set_action_plan' in self._response_tools:
+            if self._blocked_action_reason is not None:
+                reason = self._blocked_action_reason
+            elif 'set_action_plan' in self._response_tools:
                 reason = 'plan_not_observed'
             elif key in self._completed_actions and name in ('call_contact', 'navigate_to', 'select_track', 'add_stop'):
                 reason = 'duplicate_action'
@@ -135,6 +164,7 @@ class Assistant:
             elif self._next_action >= len(self._action_plan) or self._action_plan[self._next_action] != name:
                 reason = 'unplanned_action'
             if reason:
+                self._blocked_action_reason = reason
                 return {'success': False, 'action': action, 'blocked': True, 'reason': reason,
                         'message': 'Akcja zablokowana: wykonana wcześniej albo niezgodna z bieżącym planem.'}
             state = self.graph.invoke({'intent': intent, 'action': action, 'payload': payload})
@@ -149,15 +179,12 @@ class Assistant:
         self._reset_execution()
 
         @tool
-        def set_action_plan(actions: list[Literal[
-            'call_contact', 'navigate_to', 'select_track', 'add_stop',
-            'play_pause', 'next_track', 'previous_track',
-        ]]):
+        def set_action_plan(actions: list[ActionName]):
             """Zapisuje kolejność wszystkich żądanych akcji wykonawczych w tej turze. Bez narzędzi pobierających dane. Plan jest niezmienny; zapisz go przed wykonaniem akcji."""
             with self._execution_lock:
-                if not actions or self._action_plan is not None:
+                if self._action_plan is not None:
                     return {'success': False, 'reason': 'invalid_or_locked_plan',
-                            'message': 'Plan musi być niepusty i można go ustalić tylko raz w turze.'}
+                            'message': 'Plan można ustalić tylko raz w turze.'}
                 self._action_plan = list(actions)
                 return {'success': True, 'actions': self._action_plan}
 
@@ -338,9 +365,27 @@ class Assistant:
     def initialize_agent(self):
         @wrap_model_call
         def finish_completed_plan(request, handler):
-            if self._action_plan is not None and self._next_action == len(self._action_plan):
+            if self._action_plan and self._next_action == len(self._action_plan):
                 return AIMessage(content='')
+            if self._blocked_action_reason is not None:
+                raise IncompleteExecutionError(
+                    f'Przerwano wykonanie po zablokowanej akcji: {self._blocked_action_reason}. Powtórz polecenie.'
+                )
+            planning = self._action_plan is None
+            if planning:
+                request = request.override(system_message=SystemMessage(content=PLAN_PROMPT), tools=[])
             response = handler(request)
+            if planning:
+                message = response.result[-1]
+                # Accept an explicit plan from a tool-capable model as well as JSON.
+                if not (len(message.tool_calls) == 1 and message.tool_calls[0]['name'] == 'set_action_plan'):
+                    try:
+                        plan = ExecutionPlan.model_validate_json(message.text)
+                    except ValidationError:
+                        raise IncompleteExecutionError('Nie udało się ustalić planu polecenia. Powtórz polecenie.') from None
+                    response.result = [AIMessage(content='', tool_calls=[{
+                        'name': 'set_action_plan', 'args': plan.model_dump(), 'id': f'plan-{uuid4()}',
+                    }])]
             self._response_tools = {
                 call['name'] for message in response.result
                 for call in getattr(message, 'tool_calls', [])
@@ -392,9 +437,9 @@ class Assistant:
                         if isinstance(message, AIMessage) and not message.tool_calls:
                             final_text = message.text
             if not final_text and not (
-                self._action_plan is not None and self._next_action == len(self._action_plan)
+                self._action_plan and self._next_action == len(self._action_plan)
             ):
-                raise RuntimeError('Model zakończył turę bez wykonania planu i bez komunikatu dla użytkownika.')
+                raise IncompleteExecutionError('Model zakończył turę bez wykonania planu i bez komunikatu dla użytkownika.')
         except Exception as error:
             message = str(error)
             if isinstance(error, ConnectError):
@@ -410,7 +455,7 @@ class Assistant:
             raise
         if report is not None:
             report.emit("agent_end", turn_id=turn_id, success=True, text=final_text,
-                        completion_reason='plan_completed' if self._action_plan is not None and
+                        completion_reason='plan_completed' if self._action_plan and
                         self._next_action == len(self._action_plan) else 'model_response',
                         planned_actions=self._action_plan, completed_action_count=self._next_action)
         return final_text

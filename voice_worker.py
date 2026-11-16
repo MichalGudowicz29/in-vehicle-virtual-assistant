@@ -1,12 +1,14 @@
 import threading
 import sys
 import time
+import re
 from functools import partial
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
+from langgraph.errors import GraphRecursionError
 
-from assistant import Assistant
+from assistant import Assistant, IncompleteExecutionError
 from asr import resolve_model
 
 
@@ -49,10 +51,32 @@ class VoiceWorker(QObject):
                             self.report.end_turn(turn_id, "interrupted")
                     break
 
-                if self.report is not None:
-                    response = assistant.handle_text(text, report=self.report, turn_id=turn_id)
-                else:
-                    response = assistant.handle_text(text)
+                spoken_text = re.sub(r'\[[^\[\]]*\]', '', text).strip()
+                if not re.search(r'\w', spoken_text):
+                    if self.report is not None:
+                        self.report.emit('asr_warning', turn_id=turn_id,
+                                         warning='Pominięto wejście bez rozpoznanej mowy.', text=text)
+                        self.report.end_turn(turn_id, 'interrupted')
+                    turn_id = None
+                    if self.audio_file is not None:
+                        break
+                    continue
+                text = spoken_text
+
+                try:
+                    if self.report is not None:
+                        response = assistant.handle_text(text, report=self.report, turn_id=turn_id)
+                    else:
+                        response = assistant.handle_text(text)
+                except (IncompleteExecutionError, GraphRecursionError) as error:
+                    if self.audio_file is not None:
+                        raise
+                    if self.report is not None:
+                        self.report.emit("session_error", turn_id=turn_id, error=str(error))
+                        self.report.end_turn(turn_id, "failed")
+                    print(f"Nie ukończono polecenia: {error}. Słucham dalej.", file=sys.stderr, flush=True)
+                    turn_id = None
+                    continue
                 if response:
                     if self.report is not None:
                         self._speak_response(response, on_event=on_event)
