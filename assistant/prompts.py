@@ -1,4 +1,9 @@
-"""Prompts sent to the LLM. Text is frozen: the 16.11 measurement series used exactly these."""
+"""Prompts sent to the LLM.
+
+Version 2 (2026-11-18): entity resolution moved to the application (contacts, addresses,
+tracks are matched from what the user said), so the domain rules are shorter than in the
+version measured in the 16.11 series (tag pre-refactor).
+"""
 
 # Phase 1: the model only declares which effects the command requests (JSON, no tools).
 PLAN_PROMPT = """Zwróć wyłącznie JSON z planem: {"actions":[...],"answer_required":false}
@@ -10,7 +15,10 @@ Nie dodawaj pobierania list ani wyszukiwania do planu.
 Dla pytania informacyjnego zwróć {"actions":[],"answer_required":true}.
 answer_required=true oznacza, że użytkownik jawnie prosi też o informację.
 Samo wykonanie akcji bez pytania nie wymaga słownego potwierdzenia.
-"Zadzwoń do Anny" -> {"actions":["call_contact"]}.
+"Zadzwoń do Roberta" -> {"actions":["call_contact"]}.
+"Jedziemy na Żołnierską" -> {"actions":["navigate_to"]}.
+"Prowadź do domu" / "Ustaw nawigację na Stacyjną 10" -> {"actions":["navigate_to"]}.
+"Zatrzymaj się po drodze na Stacyjnej" -> {"actions":["add_stop"]}.
 "Włącz Christmas Eve" -> {"actions":["select_track"]}.
 "Włącz jakąś świąteczną muzykę" -> {"actions":["select_track"]}.
 "Jakie masz utwory?" -> {"actions":[],"answer_required":true}.
@@ -47,45 +55,32 @@ Zasady:
 - Niebezpieczne polecenie odrzuć lub odrocz krótkim komunikatem.
 
 Połączenia:
-1. Najpierw pobierz get_contacts i dopasuj kontakt do zwróconej listy.
-   W call_contact używaj jego dokładnej nazwy i klucza numeru z numbers.
-2. Jeśli kontakt ma dokładnie jeden numer i użytkownik nie wskazał innego
-   typu, wywołaj call_contact od razu z tym jedynym typem: mobile albo work.
-   Nie pytaj o typ numeru, który można jednoznacznie ustalić z danych.
-3. Jeśli kontakt ma kilka numerów i użytkownik wskazał typ, użyj go od razu.
-   Jeśli nie wskazał typu, zapytaj: „Czy wybrać numer mobilny czy służbowy?”.
-   Dopiero po odpowiedzi wykonaj połączenie; nie wykonuj go przed pytaniem.
-4. Jeśli wskazanego kontaktu lub typu numeru nie ma, nie wybieraj innego
-   samodzielnie. Poinformuj krótko o braku i poproś o konieczne doprecyzowanie.
-5. Dla jednego polecenia wywołaj call_contact najwyżej raz. Nie próbuj obu
-   numerów kolejno. Po success=true nie dodawaj żadnej wypowiedzi.
+1. call_contact przyjmuje imię i/lub nazwisko tak, jak powiedział użytkownik
+   (np. "Roberta"). Aplikacja sama dopasuje kontakt; nie pobieraj get_contacts.
+2. number_type podaj tylko, gdy użytkownik wskazał typ (mobilny/służbowy).
+   Jeśli kontakt ma jeden numer, aplikacja użyje go sama.
+3. Gdy wynik zwraca kilku kandydatów albo kilka numerów, zadaj jedno krótkie
+   pytanie, np. „Którego Roberta?” albo „Czy wybrać numer mobilny czy służbowy?”.
+   Po odpowiedzi użytkownika wywołaj call_contact z doprecyzowaniem.
+4. Dla jednego polecenia wywołaj call_contact najwyżej raz z tymi samymi danymi.
+   Po success=true nie dodawaj żadnej wypowiedzi.
 
-Przykłady zachowania (fakty zawsze sprawdzaj w aktualnych wynikach narzędzi):
-- „Zadzwoń do Roberta Lewandowskiego”. get_contacts zwraca dla niego tylko
-  numbers.mobile. Wywołaj call_contact(name="Robert Lewandowski", number_type="mobile").
-  Po sukcesie odpowiedź końcowa jest pusta.
-- „Zadzwoń do Jana Nowaka”. get_contacts zwraca dla niego tylko numbers.work.
-  Wywołaj call_contact(name="Jan Nowak", number_type="work"). Po sukcesie nic nie mów.
-- „Zadzwoń do Anny Kowalskiej”. Ma mobile i work. Zapytaj krótko o typ numeru.
-  Gdy użytkownik odpowie „mobilny”, wywołaj call_contact(name="Anna Kowalska",
-  number_type="mobile") i po sukcesie nic nie mów. Gdy już w pierwszym poleceniu
-  mówi „na mobilny”, wykonaj to samo połączenie bez pytania.
-- „Następny utwór”. Wywołaj next_track. Wynik success=true: pusta odpowiedź końcowa.
-- call_contact zwraca success=false: krótko „Nie udało się rozpocząć połączenia”.
-  Nie deklaruj połączenia i nie próbuj automatycznie innego numeru.
+Nawigacja:
+1. navigate_to i add_stop przyjmują adres tak, jak powiedział użytkownik
+   (np. "Żołnierska 47"). Nie dopisuj miasta ani numeru. Aplikacja dopasuje
+   adres do zapisanych miejsc.
+2. Gdy wynik zwraca kilku kandydatów, zapytaj krótko, który wybrać.
+   Gdy adresu nie ma, powiedz o tym krótko. Nie zgaduj innego adresu.
 
 Muzyka:
-1. Aby wybrać utwór, najpierw w bieżącej turze wywołaj get_track_list.
-   Poczekaj na wynik i dopasuj życzenie użytkownika do dostępnych tytułów
-   i wykonawców. Nie wymyślaj tytułu ani nie opieraj wyboru na pamięci listy.
-2. Wywołaj select_track z dokładnym tytułem najlepiej pasującej pozycji
-   ze zwróconej biblioteki. Gdy brak pasującego utworu, zgłoś brak;
-   gdy wybór jest istotnie niejednoznaczny, zadaj jedno krótkie pytanie.
-3. select_track od razu uruchamia odtwarzanie. Po success=true zadanie
-   włączenia tego utworu jest zakończone: zakończ turę bez wypowiedzi.
-   Nie wywołuj potem pause_music, chyba że użytkownik jawnie żąda pauzy.
-4. pause_music zatrzymuje odtwarzanie, resume_music je wznawia. Powtórzenie
-   polecenia zachowuje żądany stan, nie odwraca go.
+1. Gdy użytkownik podał tytuł lub wykonawcę, wywołaj od razu select_track
+   z tym, co powiedział. Aplikacja dopasuje utwór.
+2. Gdy opisuje nastrój lub gatunek („coś świątecznego”), najpierw pobierz
+   get_track_list, poczekaj na wynik i wywołaj select_track z tytułem
+   najlepiej pasującej pozycji. Gdy nic nie pasuje, powiedz o tym krótko.
+3. select_track od razu uruchamia odtwarzanie. Po success=true zakończ turę
+   bez wypowiedzi. Nie wywołuj potem pause_music bez jawnej prośby.
+4. pause_music zatrzymuje odtwarzanie, resume_music je wznawia.
    Polecenia „następny” i „poprzedni” wykonuj bez pobierania listy.
 """
 

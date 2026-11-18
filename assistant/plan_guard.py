@@ -43,7 +43,6 @@ class PlanGuard:
         self.failed: set[tuple] = set()          # effects that already failed with these arguments
         self.response_tools: set[str] = set()   # tools requested in the latest model response
         self.blocked_reason: str | None = None
-        self.listed_track_titles: set[str] = set()
 
     @property
     def plan_done(self) -> bool:

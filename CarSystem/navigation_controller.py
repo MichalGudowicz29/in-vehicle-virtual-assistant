@@ -1,30 +1,16 @@
-import re
-import unicodedata
-
 from PySide6.QtCore import QObject, Property, Signal, Slot
 
 from .gui_thread import init_gui_thread, on_gui_thread
+from .matching import all_terms_match, tokens
 
 
 def _address_tokens(address: str) -> list[str]:
-    text = unicodedata.normalize("NFKD", address.casefold().replace("ł", "l"))
-    text = text.encode("ascii", "ignore").decode("ascii")
-    tokens = re.findall(r"[a-z]+|[0-9]+[a-z]*", text)
-    return tokens[1:] if tokens and tokens[0] in {"ul", "ulica"} else tokens
+    words = tokens(address)
+    return words[1:] if words and words[0] in {"ul", "ulica"} else words
 
 
 # Spoken connectives ("na Żołnierską 47 w Szczecinie") carry no address information.
-_QUERY_STOPWORDS = {"w", "we", "na", "do", "ul", "ulica", "ulicy", "ulice", "ulicę"}
-
-
-def _word_matches(term: str, word: str) -> bool:
-    if term[0].isdigit():
-        return term == word                      # house numbers only as a whole (47 ≠ 147)
-    if term in word:
-        return True                              # typed fragment, e.g. "niers"
-    # Polish inflection: "szczecinie" / "żołnierskiej" match "szczecin" / "żołnierska".
-    stem = max(4, len(word) - 2)
-    return len(term) >= 5 and len(word) >= 5 and term[:stem] == word[:stem]
+_QUERY_STOPWORDS = {"w", "we", "na", "do", "ul", "ulica", "ulicy", "ulice"}
 
 
 class NavigationController(QObject):
@@ -112,7 +98,7 @@ class NavigationController(QObject):
         matches = []
         for place in self._places.values():
             words = _address_tokens(place["address"])
-            if all(any(_word_matches(term, word) for word in words) for term in terms):
+            if all_terms_match(terms, words):
                 matches.append(place.copy())
 
         def rank(place):

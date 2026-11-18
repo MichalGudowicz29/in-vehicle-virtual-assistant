@@ -7,6 +7,7 @@
    request (silent success), unless the user also asked a question (ANSWER_PROMPT).
 """
 
+from typing import get_args
 from uuid import uuid4
 
 from httpx import ConnectError
@@ -23,11 +24,12 @@ from pydantic import ValidationError
 import config
 from session_callbacks import SessionCallbacks
 
-from .plan_guard import ExecutionPlan, IncompleteExecutionError, PlanGuard
+from .plan_guard import ActionName, ExecutionPlan, IncompleteExecutionError, PlanGuard
 from .prompts import ANSWER_PROMPT, PLAN_PROMPT, SYSTEM_PROMPT
 from .tools import LOOKUP_TOOLS, build_tools
 
 OLLAMA_URL = "http://127.0.0.1:11434"
+ACTION_NAMES = set(get_args(ActionName))
 
 
 class Assistant:
@@ -72,15 +74,30 @@ class Assistant:
             message = response.result[-1]
             # Accept an explicit plan from a tool-capable model as well as JSON.
             if not (len(message.tool_calls) == 1 and message.tool_calls[0]['name'] == 'set_action_plan'):
-                try:
-                    plan = ExecutionPlan.model_validate_json(message.text)
-                except ValidationError:
-                    raise IncompleteExecutionError('Nie udało się ustalić planu polecenia. Powtórz polecenie.') from None
                 response.result = [AIMessage(content='', tool_calls=[{
-                    'name': 'set_action_plan', 'args': plan.model_dump(), 'id': f'plan-{uuid4()}'}])]
+                    'name': 'set_action_plan', 'args': self._plan_from(message).model_dump(),
+                    'id': f'plan-{uuid4()}'}])]
         guard.response_tools = {call['name'] for message in response.result
                                 for call in getattr(message, 'tool_calls', [])}
         return response
+
+    @staticmethod
+    def _plan_from(message) -> ExecutionPlan:
+        """Plan from the planning reply. A small model sometimes skips the JSON and calls
+        an action directly ("Zadzwoń do Roberta" -> call_contact) or just chats ("Dziękuję");
+        the intent is still clear, so derive the plan instead of rejecting the command."""
+        try:
+            return ExecutionPlan.model_validate_json(message.text)
+        except ValidationError:
+            pass
+        actions = [call['name'] for call in message.tool_calls if call['name'] in ACTION_NAMES]
+        if actions:
+            return ExecutionPlan(actions=actions)            # direct action call: its effects run later
+        text = message.text.strip()
+        if text and not text.startswith('{') and not message.tool_calls:
+            return ExecutionPlan(actions=[], answer_required=True)   # small talk / question: just answer
+        # Empty reply (e.g. cut off at the token limit) or a malformed plan: no usable intent.
+        raise IncompleteExecutionError('Nie udało się ustalić planu polecenia. Powtórz polecenie.')
 
     def handle_text(self, text: str, *, report=None, turn_id=None) -> str:
         """Run one command; returns text to speak ('' = silent success)."""
@@ -98,6 +115,9 @@ class Assistant:
             if not final_text.strip() and not self.guard.finished_silently:
                 raise IncompleteExecutionError('Model zakończył turę bez wykonania planu i bez komunikatu dla użytkownika.')
         except Exception as error:
+            # A failed turn leaves unfinished tool calls in memory; start the next command clean.
+            self.thread_config = {**self.thread_config,
+                                  "configurable": {"thread_id": f"user_session_{uuid4().hex[:8]}"}}
             message = str(error)
             if isinstance(error, ConnectError):
                 message = (f"Nie można połączyć się z Ollamą pod {OLLAMA_URL}. "

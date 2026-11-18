@@ -1,4 +1,10 @@
-"""Task scenarios and the success criterion applied to one session report (stdlib only)."""
+"""Task scenarios and the success criterion applied to one session report (stdlib only).
+
+The criterion checks what the application executed: exactly one successful effect call of
+the task's tool, the resolved target (contact + number type / track title) and the final
+HMI state. Failed attempts before the successful call are allowed; duplicates of a
+successful effect are blocked by the PlanGuard and would show up as a second success.
+"""
 
 import json
 
@@ -40,67 +46,48 @@ def evaluate_session(data, task=2) -> tuple[bool, str]:
             or not isinstance(turns[0].get('id'), int)):
         return False, 'Oczekiwano jednej poprawnie zakończonej tury.'
     calls = [e for e in events if e.get('type') == 'tool_start' and e.get('name') in scenario['tools']]
-    if len(calls) != 1:
-        return False, f"Oczekiwane narzędzia: {scenario['tools']}; liczba wywołań: {len(calls)}."
+    succeeded = []
     for call in calls:
-        if task == 2:
-            arguments = call.get('arguments')
-            if isinstance(arguments, str):
-                try:
-                    arguments = json.loads(arguments)
-                except json.JSONDecodeError:
-                    return False, 'Niepoprawny JSON argumentów call_contact.'
-            if arguments != EXPECTED_ARGUMENTS:
-                return False, f'Nieprawidłowe argumenty call_contact: {arguments!r}.'
         if not call.get('run_id') or call.get('turn_id') != turns[0].get('id'):
             return False, 'Wywołanie narzędzia nie jest przypisane do oczekiwanej tury.'
         ends = [e for e in events if e.get('type') == 'tool_end'
                 and e.get('name') == call['name'] and e.get('run_id') == call['run_id']
                 and e.get('turn_id') == call['turn_id']]
-        if len(ends) != 1 or ends[0].get('success') is not True:
-            return False, f"Brak potwierdzonego sukcesu właściwego {call['name']}."
+        if len(ends) != 1:
+            return False, f"Wywołanie {call['name']} bez jednoznacznego zakończenia."
+        if ends[0].get('success') is True:
+            succeeded.append((call, ends[0]))
+    if len(succeeded) != 1:
+        return False, (f"Oczekiwano dokładnie jednego udanego {scenario['tools']}; "
+                       f"udanych: {len(succeeded)}, wszystkich wywołań: {len(calls)}.")
+    target = _resolved_target(*succeeded[0])
+    if task == 2 and (target.get('contact_name', target.get('name')), target.get('number_type')) != (
+            EXPECTED_ARGUMENTS['name'], EXPECTED_ARGUMENTS['number_type']):
+        return False, f'Połączono z niewłaściwym kontaktem lub numerem: {target!r}.'
     if task == 1:
-        call = calls[0]
-        arguments = call.get('arguments')
-        if isinstance(arguments, str):
-            try:
-                arguments = json.loads(arguments)
-            except json.JSONDecodeError:
-                return False, 'Niepoprawny JSON argumentów select_track.'
-        if arguments != {'title': 'Christmas Eve'}:
+        if target.get('title') != 'Christmas Eve':
             return False, 'Wybrano niewłaściwy utwór.'
         if any(e.get('type') == 'tool_start' and e.get('name') in
                ('play_pause', 'pause_music', 'resume_music', 'next_track', 'previous_track') for e in events):
             return False, 'Wykonano dodatkową operację muzyczną.'
-        preceding = events[:events.index(call)]
-        responses = [e for e in preceding if e.get('type') == 'llm_end'
-                     and e.get('turn_id') == call['turn_id']]
-        if responses and 'get_track_list' in (responses[-1].get('tools') or []):
-            return False, 'Pobranie biblioteki i wybór pochodzą z tej samej odpowiedzi modelu.'
-        listed = False
-        for index, event in enumerate(preceding):
-            if (event.get('type') != 'tool_end' or event.get('name') != 'get_track_list'
-                    or event.get('success') is not True or event.get('turn_id') != call['turn_id']
-                    or not event.get('run_id')):
-                continue
-            if not any(e.get('type') == 'tool_start' and e.get('name') == 'get_track_list'
-                       and e.get('run_id') == event['run_id'] and e.get('turn_id') == call['turn_id']
-                       for e in preceding[:index]):
-                continue
-            output = event.get('output')
-            if isinstance(output, str):
-                try:
-                    output = json.loads(output)
-                except json.JSONDecodeError:
-                    continue
-            if isinstance(output, dict) and isinstance(output.get('tracks'), list):
-                listed = any(isinstance(track, dict) and track.get('title') == arguments['title']
-                             for track in output['tracks'])
-        if not listed:
-            return False, 'Brak potwierdzonego pobrania biblioteki z wybranym utworem przed select_track.'
     states = [e.get('state') for e in events if e.get('type') == 'app_state']
     if not states or not isinstance(states[-1], dict):
         return False, 'Brak zapisanego końcowego stanu aplikacji.'
     if any(states[-1].get(domain) != expected for domain, expected in scenario['state'].items()):
         return False, f"Końcowy stan nie spełnia oczekiwania: {scenario['state']!r}."
     return True, scenario['effect']
+
+
+def _json(value):
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _resolved_target(call, end):
+    """What the application actually executed: resolved values from the tool result
+    (version 2 tools resolve spoken names), falling back to the model's arguments."""
+    return {**_json(call.get('arguments')), **_json(end.get('output'))}

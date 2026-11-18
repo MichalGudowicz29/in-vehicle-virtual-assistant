@@ -319,8 +319,6 @@ def test_scenario_success_requires_both_action_and_expected_final_state(task, to
         dict(type='tool_end', turn_id=1, run_id='action', name=tool, success=True),
         dict(type='app_state', turn_id=None, state=state),
     ]}
-    if task == 1:
-        data['events'][:0] = music_listing()
     assert evaluate_session(data, task)[0] is True
     data['events'][-1]['state'] = {}
     assert evaluate_session(data, task)[0] is False
@@ -334,47 +332,34 @@ def music_listing():
     ]
 
 
-@pytest.mark.parametrize('problem', ['no_list', 'late_list', 'failed_list', 'wrong_turn',
-                                      'wrong_run', 'missing_title', 'bad_output', 'play_pause',
-                                      'wrong_title', 'duplicate', 'extra_toggle', 'extra_pause',
-                                      'extra_resume', 'same_response'])
-def test_music_evaluation_requires_list_then_one_matching_selection(problem):
+@pytest.mark.parametrize('problem', ['none', 'spoken_title', 'failed_first', 'wrong_title', 'duplicate',
+                                     'unfinished', 'extra_toggle', 'extra_pause', 'extra_resume'])
+def test_music_evaluation_checks_executed_track_and_no_extra_operations(problem):
     from experiments.runner import evaluate_session
-    listing = music_listing()
+    output = json.dumps({'success': True, 'action': 'select_track', 'title': 'Christmas Eve', 'isPlaying': True})
     action = [dict(type='tool_start', turn_id=1, run_id='play', name='select_track',
                    arguments={'title': 'Christmas Eve'}),
-              dict(type='tool_end', turn_id=1, run_id='play', name='select_track', success=True)]
-    if problem == 'no_list':
-        listing = []
-    elif problem == 'failed_list':
-        listing[1]['success'] = False
-    elif problem == 'wrong_turn':
-        for event in listing:
-            event['turn_id'] = 2
-    elif problem == 'wrong_run':
-        listing[1]['run_id'] = 'other'
-    elif problem == 'missing_title':
-        listing[1]['output'] = json.dumps({'success': True, 'tracks': []})
-    elif problem == 'bad_output':
-        listing[1]['output'] = 'not JSON'
-    elif problem == 'play_pause':
-        for event in action:
-            event['name'] = 'play_pause'
-        action[0]['arguments'] = {}
+              dict(type='tool_end', turn_id=1, run_id='play', name='select_track', success=True, output=output)]
+    if problem == 'spoken_title':
+        action[0]['arguments'] = {'title': 'christmas eve od Toto'}      # resolved by the application
+    elif problem == 'failed_first':
+        action[:0] = [dict(type='tool_start', turn_id=1, run_id='miss', name='select_track', arguments={'title': 'Kolędy'}),
+                      dict(type='tool_end', turn_id=1, run_id='miss', name='select_track', success=False)]
     elif problem == 'wrong_title':
-        action[0]['arguments'] = {'title': 'Chill song'}
+        action[1]['output'] = output.replace('Christmas Eve', 'Chill song')
     elif problem == 'duplicate':
         action += [dict(event, run_id='second') for event in action]
-    elif problem in ('extra_toggle', 'extra_pause', 'extra_resume'):
+    elif problem == 'unfinished':
+        action.pop()
+    elif problem.startswith('extra'):
         name = {'extra_toggle': 'play_pause', 'extra_pause': 'pause_music', 'extra_resume': 'resume_music'}[problem]
         action += [dict(type='tool_start', turn_id=1, run_id='toggle', name=name, arguments={}),
                    dict(type='tool_end', turn_id=1, run_id='toggle', name=name, success=True)]
-    elif problem == 'same_response':
-        listing.insert(0, dict(type='llm_end', turn_id=1, tools=['get_track_list', 'select_track']))
-    data = {'turns': [{'id': 1, 'status': 'completed'}],
-            'events': (action + listing if problem == 'late_list' else listing + action) + [
-                dict(type='app_state', state={'music': {'title': 'Christmas Eve', 'is_playing': True}})]}
-    assert evaluate_session(data, 1)[0] is False
+    data = {'turns': [{'id': 1, 'status': 'completed'}], 'events': [
+        *action, dict(type='app_state', turn_id=None, state={'music': {'title': 'Christmas Eve', 'is_playing': True}})]}
+    expected = problem in ('none', 'spoken_title', 'failed_first')
+    assert evaluate_session(data, 1)[0] is expected, evaluate_session(data, 1)
+
 
 
 def test_phone_success_requires_call_to_still_be_active():

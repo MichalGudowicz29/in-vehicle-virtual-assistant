@@ -163,20 +163,23 @@ def test_empty_response_without_execution_is_an_error(execution, qt_call):
     assert report.snapshot()['events'][-1]['success'] is False
 
 
-def test_side_effect_in_plan_response_is_rejected_before_execution(execution, qt_call):
-    arguments = {'name': 'Robert Lewandowski', 'number_type': 'mobile'}
+def test_direct_action_in_plan_response_becomes_plan_and_runs_later(execution, qt_call):
+    """Small models often skip the JSON plan ("Zadzwoń do Roberta" -> call_contact)."""
     assistant, car, model, report = execution(
-        tool_response(('set_action_plan', {'actions': ['call_contact']}), ('call_contact', arguments)),
+        tool_response(('call_contact', {'name': 'Roberta'})),
+        tool_response(('call_contact', {'name': 'Roberta'})),
     )
-    with pytest.raises(RuntimeError, match='ustalić planu'):
-        qt_call(lambda: assistant.handle_text('Zadzwoń', report=report, turn_id=report.begin_turn()))
-    ends = [event for event in report.snapshot()['events']
-            if event['type'] == 'tool_end' and event['name'] == 'call_contact']
-    assert ends == []
-    assert car.contacts.isCalling is False
-    assert model.requests == 1
-    response = next(event for event in report.snapshot()['events'] if event['type'] == 'llm_end')
-    assert response['tools'] == ['set_action_plan', 'call_contact']
+    assert qt_call(lambda: assistant.handle_text('Zadzwoń do Roberta', report=report,
+                                                turn_id=report.begin_turn())) == ''
+    ends = [e for e in report.snapshot()['events'] if e['type'] == 'tool_end' and e['name'] == 'call_contact']
+    assert len(ends) == 1                         # the call in the planning reply itself never ran
+    assert car.contacts.currentContactName == 'Robert Lewandowski'
+    assert model.requests == 2
+
+
+def test_small_talk_in_plan_response_is_answered_not_rejected(execution, qt_call):
+    assistant, car, model, report = execution(AIMessage(content='Proszę bardzo.'), AIMessage(content='Proszę.'))
+    assert qt_call(lambda: assistant.handle_text('Dziękuję', report=report, turn_id=report.begin_turn())) == 'Proszę.'
 
 
 def test_success_ledger_is_reset_for_next_user_turn(execution, qt_call):

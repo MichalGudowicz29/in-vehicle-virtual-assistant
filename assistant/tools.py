@@ -1,47 +1,93 @@
 """LLM tools: read-only lookups and guarded effects on the car controllers.
 
-Tool names, docstrings, arguments and result dictionaries are part of the model input.
-Change against the 16.11 series (2026-11-18): navigate_to/add_stop take the address as
-spoken and the application matches it to the place base, instead of street/city/number
-fields that made a small model invent a missing city.
+Division of work: the LLM understands the command and passes on *what the user said*
+("Roberta", "Żołnierska 47", "Christmas Eve"); the application resolves it against its
+own data (contacts, places, tracks). One match is executed; several matches or none are
+returned as candidates so the LLM can ask a short question instead of guessing.
+
+Version 2 (2026-11-18). The 16.11 series used version 1 (tag pre-refactor), where the
+model had to reproduce exact names, titles and street/city/number fields.
 """
 
-from typing import Annotated, Literal
+from langchain.tools import tool  # type: ignore
 
-from langchain.tools import InjectedToolArg, ToolRuntime, tool  # type: ignore
+from CarSystem.matching import all_terms_match, tokens
 
 from .plan_guard import ActionName, PlanGuard
 
+NUMBER_LABELS = {'mobile': 'mobilny', 'work': 'służbowy'}
+# The model may answer with the Polish label it saw in a result or heard from the user.
+NUMBER_ALIASES = {'mobile': 'mobile', 'mobilny': 'mobile', 'komorkowy': 'mobile', 'komórkowy': 'mobile',
+                  'prywatny': 'mobile', 'work': 'work', 'sluzbowy': 'work', 'służbowy': 'work', 'praca': 'work'}
+
+
+def find_tracks(tracks: list[dict], query: str) -> list[dict]:
+    """Tracks whose title or artist matches what the user said."""
+    terms = tokens(query)
+    exact = [t for t in tracks if tokens(t['title']) == terms or tokens(t['artist']) == terms]
+    return exact or [t for t in tracks if all_terms_match(terms, tokens(f"{t['title']} {t['artist']}"))]
+
+
+def _call(car, payload: dict) -> dict:
+    contacts = car.contacts
+    matches = contacts.find_contacts(payload['name'])
+    if len(matches) != 1:
+        return {'success': False, 'action': 'call_contact',
+                'message': ('Kilka pasujących kontaktów: zapytaj użytkownika, którego wybrać.' if matches
+                            else 'Brak takiego kontaktu. Powiedz o tym krótko; nie wybieraj innego.'),
+                'candidates': [c['name'] for c in (matches or contacts.contacts)]}
+    contact = matches[0]
+    numbers = [key for key in contact if key != 'name']
+    requested_type = NUMBER_ALIASES.get((payload.get('number_type') or '').strip().lower(), payload.get('number_type'))
+    number_type = requested_type or (numbers[0] if len(numbers) == 1 else None)
+    if number_type not in numbers:
+        return {'success': False, 'action': 'call_contact', 'contact_name': contact['name'],
+                'message': ('Kontakt ma kilka numerów: zapytaj, który wybrać.' if number_type is None
+                            else 'Kontakt nie ma numeru tego typu: zapytaj, który wybrać.'),
+                'number_types': [NUMBER_LABELS.get(n, n) for n in numbers]}
+    requested = contacts.call_contact(contact['name'], number_type)
+    return {'success': bool(requested), 'action': 'call_contact',
+            'contact_name': contact['name'], 'number_type': number_type}
+
+
+def _route(car, action: str, payload: dict) -> dict:
+    navigation = car.navigation
+    address = payload['address']
+    method = navigation.set_destination if action == 'set_destination' else navigation.add_stop
+    if address.strip() and method(address):
+        matched = navigation.destination if action == 'set_destination' else navigation.stops[-1]['address']
+        return {'success': True, 'action': action,
+                'destination' if action == 'set_destination' else 'stop': matched}
+    candidates = [place['address'] for place in navigation.search_places(address)]
+    return {'success': False, 'action': action,
+            'message': ('Kilka pasujących adresów: zapytaj użytkownika, który wybrać.' if candidates
+                        else 'Brak takiego adresu w zapisanych miejscach. Powiedz o tym krótko; nie zgaduj.'),
+            'candidates': candidates or [place['address'] for place in navigation.places_list.values()]}
+
 
 def perform(car, action: str, payload: dict) -> dict:
-    """Call one controller operation and describe its outcome for the model."""
+    """Resolve the spoken target, call one controller operation and describe the outcome."""
     music = car.music
     if action == 'call_contact':
-        requested = car.contacts.call_contact(payload['name'], payload['number_type'])
-        return {'success': bool(requested), 'action': action,
-                'contact_name': payload['name'], 'number_type': payload['number_type']}
+        return _call(car, payload)
     if action in ('set_destination', 'add_stop'):
-        navigation = car.navigation
-        address = payload['address']
-        method = navigation.set_destination if action == 'set_destination' else navigation.add_stop
-        if address.strip() and method(address):
-            matched = navigation.destination if action == 'set_destination' else navigation.stops[-1]['address']
-            return {'success': True, 'action': action,
-                    'destination' if action == 'set_destination' else 'stop': matched}
-        candidates = [place['address'] for place in navigation.search_places(address)]
-        return {'success': False, 'action': action,
-                'message': ('Adres niejednoznaczny: wybierz jeden z kandydatów albo dopytaj użytkownika.'
-                            if candidates else
-                            'Nie ma takiego adresu w bazie miejsc. Nie zgaduj; dopytaj użytkownika.'),
-                'candidates': candidates or [place['address'] for place in navigation.places_list.values()]}
+        return _route(car, action, payload)
+    if action == 'select_track':
+        matches = find_tracks(music.tracks, payload['title'])
+        if len(matches) != 1:
+            return {'success': False, 'action': action,
+                    'message': ('Kilka pasujących utworów: zapytaj, który włączyć.' if matches
+                                else 'Brak takiego utworu. Wybierz z biblioteki tylko pasujący albo powiedz o braku.'),
+                    'candidates': [t['title'] for t in (matches or music.tracks)]}
+        requested = music.select_track(matches[0]['title'])
+        return {'success': bool(requested), 'action': action, 'title': matches[0]['title'],
+                'isPlaying': music.isPlaying}
     if action == 'set_playback':
         requested = music.set_playback(payload['playing'])
     elif action == 'next_track':
         requested = music.next_track()
     elif action == 'previous_track':
         requested = music.previous_track()
-    elif action == 'select_track':
-        requested = music.select_track(payload['title'])
     else:
         raise ValueError(f'Unknown action: {action}')
     return {'success': bool(requested), 'action': action,
@@ -81,70 +127,49 @@ def build_tools(car, guard: PlanGuard) -> list:
 
     @tool
     def get_track_list():
-        """Zwraca listę dostępnych utworów."""
-        tracks = [{"id": index, "title": track["title"], "author": track["artist"]}
-                  for index, track in enumerate(car.music.tracks)]
-        guard.listed_track_titles = {track["title"] for track in tracks}
-        return {"success": True, "tracks": tracks, "message": "Retrieved track list successfully."}
+        """Zwraca bibliotekę utworów. Potrzebne tylko, gdy użytkownik opisuje nastrój lub gatunek zamiast tytułu."""
+        tracks = [{"title": track["title"], "author": track["artist"]} for track in car.music.tracks]
+        return {"success": True, "tracks": tracks}
 
     @tool
-    def search_track(query: str):
-        """Wyszukuje utwory po tytule lub wykonawcy."""
-        # Known limitation kept for comparability: matches found here do not unlock select_track.
-        matches = [{"id": index, "title": track["title"], "author": track["artist"]}
-                   for index, track in enumerate(car.music.tracks)
-                   if query.lower() in track["title"].lower() or query.lower() in track["artist"].lower()]
-        return {"success": bool(matches), "tracks": matches,
-                "message": f"Found {len(matches)} matching tracks." if matches else "No tracks found."}
-
-    @tool
-    def select_track(title: str, runtime: Annotated[ToolRuntime | None, InjectedToolArg] = None):
-        """Wybiera i od razu odtwarza utwór. Użyj dokładnego tytułu z get_track_list w tej turze. Nie pauzuj bez żądania użytkownika."""
-        # Parallel calls in one response cannot use a library the model has not seen.
-        if runtime is not None and any(call['name'] == 'get_track_list'
-                                       for call in runtime.state['messages'][-1].tool_calls):
-            return {"success": False, "action": "select_track",
-                    "message": "Poczekaj na wynik get_track_list, a dopiero potem wybierz utwór."}
-        if title not in guard.listed_track_titles:
-            return {"success": False, "action": "select_track",
-                    "message": "Najpierw pobierz get_track_list i wybierz dokładny tytuł z tej listy."}
-        return guarded('select_track', 'select_track', {"title": title})
+    def select_track(title: str):
+        """Wybiera i od razu odtwarza utwór. title: tytuł lub wykonawca tak, jak podał użytkownik (albo tytuł z get_track_list); aplikacja dopasuje utwór. Nie pauzuj bez żądania użytkownika."""
+        return guarded('select_track', 'select_track', {"title": title.strip()})
 
     # Kontakty
     @tool
     def get_contacts():
-        """Zwraca wszystkich zapisanych kontaktów wraz ze wszystkimi numerami."""
-        contacts = [{"id": index, "name": contact["name"],
-                     "numbers": {key: value for key, value in contact.items() if key != "name"}}
-                    for index, contact in enumerate(car.contacts.contacts)]
-        return {"success": bool(contacts), "contacts": contacts, "message": "Lista kontaktów została pobrana."}
+        """Zwraca kontakty z numerami. Potrzebne tylko do pytań o kontakty, nie do dzwonienia."""
+        contacts = [{"name": contact["name"],
+                     "numbers": [NUMBER_LABELS.get(k, k) for k in contact if k != "name"]}
+                    for contact in car.contacts.contacts]
+        return {"success": True, "contacts": contacts}
 
     @tool
-    def call_contact(name: str, number_type: Literal["mobile", "work"]):
-        """Inicjuje połączenie z kontaktem o podanej nazwie i typie numeru."""
-        return guarded('call_contact', 'call_contact', {"name": name, "number_type": number_type})
+    def call_contact(name: str, number_type: str | None = None):
+        """Dzwoni do kontaktu. name: imię i/lub nazwisko tak, jak powiedział użytkownik (np. "Roberta"); aplikacja dopasuje kontakt. number_type ("mobilny" albo "służbowy") tylko, gdy użytkownik sam wskazał typ; jeśli nie wskazał, a kontakt ma kilka numerów, zapytaj go."""
+        return guarded('call_contact', 'call_contact', {"name": name.strip(), "number_type": number_type})
 
     # Nawigacja
     @tool
     def navigate_to(address: str):
-        """Ustawia cel nawigacji. address: adres dokładnie tak, jak podał użytkownik, np. "Żołnierska 47"; nie dopisuj miasta ani numeru, których nie podał. Aplikacja dopasuje adres do bazy miejsc; gdy się nie uda, zwróci kandydatów."""
+        """Ustawia cel nawigacji. address: adres tak, jak podał użytkownik (np. "Żołnierska 47"); nie dopisuj miasta ani numeru. Aplikacja dopasuje adres do zapisanych miejsc."""
         return guarded('navigate_to', 'set_destination', {"address": address.strip()})
 
     @tool
     def add_stop(address: str):
-        """Dodaje przystanek do trasy. address: adres tak, jak podał użytkownik; aplikacja dopasuje go do bazy miejsc i przy niepowodzeniu zwróci kandydatów."""
+        """Dodaje przystanek do trasy. address: adres tak, jak podał użytkownik; aplikacja dopasuje go do zapisanych miejsc."""
         return guarded('add_stop', 'add_stop', {"address": address.strip()})
 
     @tool
     def get_places_list():
-        """Zwraca listę dostępnych miejsc, ktore mozna dodac jako przystanek."""
-        return {"success": True, "places": car.navigation.places_list,
-                "message": "Retrieved places list successfully."}
+        """Zwraca zapisane miejsca. Potrzebne tylko do pytań o miejsca, nie do ustawiania celu."""
+        return {"success": True, "places": [p["address"] for p in car.navigation.places_list.values()]}
 
     # Order matters: it is the order of tool schemas in the model request.
-    return [set_action_plan, pause_music, resume_music, next_track, previous_track, search_track,
+    return [set_action_plan, pause_music, resume_music, next_track, previous_track,
             select_track, get_track_list, call_contact, get_contacts, navigate_to, add_stop,
             get_places_list]
 
 
-LOOKUP_TOOLS = ('get_contacts', 'get_track_list', 'search_track', 'get_places_list')
+LOOKUP_TOOLS = ('get_contacts', 'get_track_list', 'get_places_list')

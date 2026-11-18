@@ -39,33 +39,48 @@ def test_select_track_tool_returns_failure_for_unknown_title():
     assert result["success"] is False
 
 
-def test_music_selection_requires_current_library_and_starts_playback():
+@pytest.mark.parametrize('spoken', ['Chill song', 'chill', 'Fleetwood Mac'])
+def test_music_selection_matches_spoken_title_or_artist_and_starts_playback(spoken):
     car = CarSystem()
     assistant = Assistant.__new__(Assistant)
     assistant.car = car
     tools = {tool.name: tool for tool in assistant.build_tools()}
     tools['set_action_plan'].invoke({'actions': ['select_track']})
-    assert tools['select_track'].invoke({'title': 'Chill song'})['success'] is False
-    assert set(tools['select_track'].tool_call_schema.model_json_schema()['properties']) == {'title'}
-    assert car.music.currentTrackIndex == 0
-    assert car.music.isPlaying is False
-    tools['search_track'].invoke({'query': 'Chill'})
-    assert tools['select_track'].invoke({'title': 'Chill song'})['success'] is False
-    tools['get_track_list'].invoke({})
-    assert tools['select_track'].invoke({'title': 'chill song'})['success'] is False
-    assert tools['select_track'].invoke({'title': 'Chill song'})['success'] is True
-    assert car.music.currentTrackIndex == 1
-    assert car.music.isPlaying is True
+    result = tools['select_track'].invoke({'title': spoken})
+    assert result['success'] is True and result['title'] == 'Chill song'
+    assert car.music.currentTrackIndex == 1 and car.music.isPlaying is True
 
-def test_selection_rechecks_library_after_listing():
+
+@pytest.mark.parametrize('spoken, contact, number', [
+    ('Roberta', 'Robert Lewandowski', 'mobile'),
+    ('Roberta Lewandowskiego', 'Robert Lewandowski', 'mobile'),
+    ('Jana Nowaka', 'Jan Nowak', 'work'),
+])
+def test_call_contact_resolves_spoken_name_and_single_number(spoken, contact, number):
     car = CarSystem()
     assistant = Assistant.__new__(Assistant)
     assistant.car = car
     tools = {tool.name: tool for tool in assistant.build_tools()}
-    tools['set_action_plan'].invoke({'actions': ['select_track']})
-    tools['get_track_list'].invoke({})
-    car.music.tracks.pop()
-    assert tools['select_track'].invoke({'title': 'Dynamic music'})['success'] is False
+    tools['set_action_plan'].invoke({'actions': ['call_contact']})
+    result = tools['call_contact'].invoke({'name': spoken})
+    assert result == {'success': True, 'action': 'call_contact', 'contact_name': contact, 'number_type': number}
+    assert car.contacts.currentContactName == contact
+
+
+def test_call_contact_asks_when_number_or_person_is_ambiguous():
+    car = CarSystem()
+    assistant = Assistant.__new__(Assistant)
+    assistant.car = car
+    tools = {tool.name: tool for tool in assistant.build_tools()}
+    tools['set_action_plan'].invoke({'actions': ['call_contact']})
+    anna = tools['call_contact'].invoke({'name': 'Anny'})
+    assert anna['success'] is False and anna['number_types'] == ['mobilny', 'służbowy']
+    assert car.contacts.isCalling is False
+    car.contacts.set_contacts([{'name': 'Robert Kubica', 'mobile': '1'}])
+    tools['set_action_plan'].invoke({'actions': ['call_contact']})
+    roberts = tools['call_contact'].invoke({'name': 'Roberta'})
+    assert roberts['candidates'] == ['Robert Lewandowski', 'Robert Kubica']
+    assert car.contacts.isCalling is False
 
 
 @pytest.mark.parametrize('tool_name', ['navigate_to', 'add_stop'])
@@ -117,3 +132,14 @@ def test_perform_reports_controller_outcome_for_the_model():
     assert failed['success'] is False and len(failed['candidates']) == 3
     with pytest.raises(ValueError):
         perform(car, 'play_pause', {})
+
+
+@pytest.mark.parametrize('number_type', ['mobilny', 'mobile', 'Komórkowy'])
+def test_call_contact_accepts_polish_number_labels(number_type):
+    car = CarSystem()
+    assistant = Assistant.__new__(Assistant)
+    assistant.car = car
+    tools = {tool.name: tool for tool in assistant.build_tools()}
+    tools['set_action_plan'].invoke({'actions': ['call_contact']})
+    result = tools['call_contact'].invoke({'name': 'Anny Kowalskiej', 'number_type': number_type})
+    assert result['success'] is True and result['number_type'] == 'mobile'

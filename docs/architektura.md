@@ -114,18 +114,25 @@ czynności.” (8 s), a pętla wraca do nasłuchu; dotyk działa cały czas.
 ## 4. Agent i strażnik planu
 
 `assistant/` to agent LangChain (`create_agent`) z pamięcią rozmowy (doprecyzowania
-między turami) i 13 narzędziami (`tools.py`): odczyty (`get_contacts`, `get_track_list`,
-`search_track`, `get_places_list`), plan (`set_action_plan`) i efekty
-(`call_contact`, `navigate_to`, `add_stop`, `select_track`, `pause_music`,
-`resume_music`, `next_track`, `previous_track`).
+między turami) i 12 narzędziami (`tools.py`): odczyty (`get_contacts`, `get_track_list`,
+`get_places_list`), plan (`set_action_plan`) i efekty (`call_contact`, `navigate_to`,
+`add_stop`, `select_track`, `pause_music`, `resume_music`, `next_track`, `previous_track`).
 
-Nawigacja: `navigate_to(address)` i `add_stop(address)` przyjmują adres tak, jak
-powiedział użytkownik („Żołnierska 47”). Aplikacja dopasowuje go do bazy miejsc
-(bez `ul.`, polskich znaków, z odmianą: „na Żołnierską 47 w Szczecinie”, numer
-domu tylko w całości). Gdy dopasowanie nie jest jednoznaczne, wynik zawiera listę
-kandydatów i prośbę o doprecyzowanie zamiast zgadywania. Wersja z serii 16.11
-miała pola `street`/`city`/`number`, przez co mały model dopisywał brakujące miasto
-(np. „Warszawa”) i cel nie był ustawiany.
+**Podział pracy: LLM rozumie, aplikacja rozstrzyga.** Model przekazuje w argumentach to,
+co powiedział użytkownik („Roberta”, „Żołnierska”, „Christmas Eve”). Aplikacja dopasowuje
+to do własnych danych (`CarSystem/matching.py`: bez wielkości liter i znaków diakrytycznych,
+z polską odmianą, numer domu tylko w całości). Jedno trafienie jest wykonywane od razu,
+np. kontakt z jednym numerem — bez pytania o typ. Kilka trafień albo brak wraca do modelu
+jako lista kandydatów, a model zadaje jedno krótkie pytanie („Którego Roberta?”, „Numer
+mobilny czy służbowy?”). Tak działa rozpoznawanie encji w komercyjnych asystentach
+i odciąża mały model od odtwarzania dokładnych nazw. Wartość LLM to zrozumienie
+dowolnie sformułowanego polecenia, poleceń złożonych, opisu nastroju („coś
+świątecznego” → wybór z biblioteki) i prowadzenie doprecyzowania.
+
+W wersji 1 (seria 16.11, tag `pre-refactor`) model musiał podać dokładną nazwę kontaktu
+i typ numeru, dokładny tytuł z wcześniej pobranej biblioteki oraz osobno ulicę, miasto
+i numer. W użyciu ręcznym prowadziło to do dopisywania nieistniejących danych (np. miasta
+„Warszawa”) i odrzucenia polecenia.
 
 Małe lokalne modele (2B/4B) w pilotażu powtarzały akcje (np. trzy połączenia),
 wykonywały niezamówione (pauza po wyborze utworu) i nie kończyły tury. Dlatego
@@ -133,6 +140,9 @@ przyjęto schemat **plan-then-execute z deterministycznym strażnikiem**:
 
 1. **Planowanie** — pierwsze żądanie dostaje wyłącznie `PLAN_PROMPT` i zwraca JSON
    z listą akcji wykonawczych. Plan zapisuje aplikacja; jest niezmienny w turze.
+   Gdy mały model pominie JSON i od razu wywoła akcję, plan powstaje z tych wywołań
+   (same wywołania nie są wtedy wykonywane — dopiero w kolejnym kroku). Zwykła
+   rozmowa („Dziękuję”) dostaje odpowiedź. Pusta odpowiedź jest błędem.
 2. **Wykonanie** — `PlanGuard.execute` przepuszcza do kontrolera wyłącznie
    następną akcję planu. Odmawia, gdy: brak planu, akcja poza kolejnością,
    powtórzenie udanego efektu z tymi samymi argumentami, ponowienie nieudanej akcji
@@ -144,16 +154,13 @@ przyjęto schemat **plan-then-execute z deterministycznym strażnikiem**:
    odpowiedź bez kolejnego żądania do LLM. Gdy użytkownik zapytał też o informację
    (`answer_required`), model dostaje tylko narzędzia odczytu i musi odpowiedzieć.
 
-Dodatkowe reguły: `select_track` przyjmuje tylko tytuł z `get_track_list`
-pobranego w tej turze (model nie zgaduje biblioteki); narzędzia z jednej odpowiedzi
-wykonują się kolejno (`max_concurrency=1`); limit kroków grafu to 24.
+Dodatkowe reguły: narzędzia z jednej odpowiedzi wykonują się kolejno
+(`max_concurrency=1`); limit kroków grafu to 24; po nieudanej turze pamięć rozmowy
+jest czyszczona, żeby niedokończone wywołania nie wpływały na następne polecenie.
 
 Podział odpowiedzialności: **LLM decyduje, co zrobić; kod decyduje, czy efekt może
 dojść do samochodu.** Semantyczna poprawność planu (np. czy „świąteczna muzyka” to
 Christmas Eve) nadal zależy od modelu.
-
-Znane ograniczenie: `search_track` nie odblokowuje `select_track` (wymagany jest
-`get_track_list`). Pozostawione bez zmian, bo tak działała wersja zmierzona w serii.
 
 ## 5. Raport sesji
 
@@ -187,11 +194,17 @@ uruchamia `main.py --experiment --audio-file …` jako nowy proces na każdą pr
 „Chill song”, żeby wybór Christmas Eve był rzeczywistym wyborem.
 
 Kryterium (`experiments/evaluate.py`): jedna zakończona tura bez błędu sesji, dokładnie
-jedno właściwe wywołanie z potwierdzonym sukcesem i właściwy stan końcowy:
+jedno udane wywołanie narzędzia zadania (wcześniejsze nieudane próby są dopuszczalne,
+każde wywołanie musi mieć zakończenie), właściwy rozstrzygnięty cel i stan końcowy:
 
-- Muzyka — `get_track_list` przed jednym `select_track("Christmas Eve")`, bez innych operacji muzycznych; gra Christmas Eve.
-- Telefon — jedno `call_contact("Robert Lewandowski", "mobile")`; połączenie aktywne.
-- Nawigacja — jedno `navigate_to`; cel „ul. Żołnierska 47, Szczecin”, bez przystanków.
+- Muzyka — wykonano `select_track` z utworem Christmas Eve, bez innych operacji muzycznych; gra Christmas Eve.
+- Telefon — połączono z Robertem Lewandowskim na numer mobilny; połączenie aktywne.
+- Nawigacja — jedno udane `navigate_to`; cel „ul. Żołnierska 47, Szczecin”, bez przystanków.
+
+Cel jest odczytywany z wyniku narzędzia (co aplikacja faktycznie wykonała), a dla starych
+raportów z argumentów. Na raportach serii 16.11 i 13.11 kryterium daje identyczne oceny
+jak w chwili pomiaru (72/108 i 60/108); seria 10.11 była oceniana wcześniejszym,
+łagodniejszym kryterium muzyki.
 
 Wyniki: `logs/eksperymenty/seria_ABCD_<czas>/<wariant>/zad<N>_<zadanie>/` z `summary.txt`
 / `summary.json` (sukcesy, czasy, tokeny, best/worst) i surowymi raportami każdej próby.
