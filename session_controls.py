@@ -2,7 +2,7 @@
 
 from uuid import uuid4
 
-from PySide6.QtCore import QObject, Property, Slot
+from PySide6.QtCore import QObject, Property, Signal, Slot
 
 
 ACTIONS = {
@@ -13,11 +13,24 @@ ACTIONS = {
 
 
 class SessionControls(QObject):
+    userMessageChanged = Signal()
+
     def __init__(self, car, report, *, touch_enabled=True):
         super().__init__()
         self.car = car
         self.report = report
         self._touch_enabled = touch_enabled
+        self._user_message = ''
+
+    @Property(str, notify=userMessageChanged)
+    def userMessage(self):
+        return self._user_message
+
+    @Slot(str)
+    def showUserMessage(self, message):
+        if message != self._user_message:
+            self._user_message = message
+            self.userMessageChanged.emit()
 
     @Property(bool, constant=True)
     def touchEnabled(self):

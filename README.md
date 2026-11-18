@@ -95,13 +95,21 @@ pauza pozostaje dozwolona. `tool_start` i `tool_end` nadal zapisują próbę,
 kroki, aby pomieścić plan i pobieranie danych dla poleceń złożonych; ochronę
 przed powtórzeniem zapewnia kod, niezależnie od tego limitu.
 
+Obsłużony błąd nieukończenia polecenia lub limitu grafu w trybie mikrofonowym
+zapisuje nieudaną turę i pokazuje baner w GUI, po czym wraca do nasłuchu.
+Baner znika po 8 sekundach, po zamknięciu przyciskiem lub po rozpoznaniu kolejnej
+wypowiedzi. Komunikat nie nakazuje powtarzać całego polecenia, bo część jego
+czynności mogła już zostać wykonana. Tryb plikowy nadal zgłasza błąd i kończy próbę.
+
 Opcjonalne `OLLAMA_NUM_CTX`, `OLLAMA_NUM_PREDICT` i `OLLAMA_REASONING` są opisane
-w `.env.example`. Puste wartości pozostawiają domyślne ustawienia runtime.
+w `.env.example`. Puste wartości pozostawiają domyślne ustawienia runtime,
+z wyjątkiem `reasoning`: bez `--experiment` domyślnie wynosi `false`.
 Raporty TXT/JSON zapisują żądane ustawienia przy `llm_start`, a przy `llm_end`
 `done_reason`, metadane serwera i dostępne długości treści oraz reasoning.
 `null` nie oznacza wyłączonego reasoning ani ustalonego rozmiaru kontekstu.
-Domyślnych parametrów generacji nie zmieniono bez dowodu przyczyny błędów.
+Kontekstu i limitu generacji nie dobierano bez próby na docelowym serwerze.
 [Diagnoza przypadków 4096 tokenów i XML](GENERATION_DIAGNOSIS.md).
+[Próba konfiguracji i odbiór urządzenia](ACCEPTANCE.md).
 
 Przed wyborem muzyki agent pobiera `get_track_list` w bieżącej turze i dopasowuje
 życzenie do dostępnych tytułów i wykonawców. `select_track` odrzuca tytuł, którego

@@ -71,6 +71,7 @@ assistant_thread = QThread()
 
 #startowanie VoiceWorker w osobnym wątku
 voice_worker = VoiceWorker(car, report=session_report, audio_file=args.audio_file, asr=args.asr)
+voice_worker.userMessage.connect(session_controls.showUserMessage)
 shutdown_controller = ShutdownController(voice_worker.stop_event, report=session_report,
                                          report_directory=args.report_dir, car=car)
 if checkpoint_timer is not None:

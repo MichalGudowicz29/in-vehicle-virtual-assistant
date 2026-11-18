@@ -35,12 +35,15 @@ def test_incomplete_manual_turn_is_failed_and_next_turn_still_completes(monkeypa
     monkeypatch.setattr('voice_worker.Assistant', FakeAssistant)
     monkeypatch.setattr('voice_worker.time.sleep', lambda _: None)
     worker = VoiceWorker(None, report=report)
+    messages = []
+    worker.userMessage.connect(messages.append)
     monkeypatch.setattr(worker, '_speak_response', lambda text, **kwargs: actions.append(text))
     worker.finished.connect(lambda: actions.append('finished'))
 
     worker.run()
 
     assert actions == ['pierwsza komenda', 'druga komenda', 'Gotowe', 'finished']
+    assert messages == ['', 'Nie ukończono polecenia. Sprawdź stan wykonanych czynności.', '']
     printed = capsys.readouterr().err
     assert message in printed
     assert 'Słucham dalej' in printed

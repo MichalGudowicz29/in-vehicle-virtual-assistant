@@ -48,7 +48,7 @@ def test_main_qml_loads_and_touch_arguments_cross_qt_boundary(tmp_path, music_fi
     script = '''
 import sys
 import pygame
-from PySide6.QtCore import QUrl
+from PySide6.QtCore import QUrl, QMetaObject, Qt, QEventLoop, QTimer, QObject
 from PySide6.QtWidgets import QApplication
 from PySide6.QtQml import QQmlApplicationEngine, QQmlComponent
 from PySide6.QtQuick import QQuickItem
@@ -72,6 +72,33 @@ for name, obj in [('car', car), ('sessionControls', controls), ('shutdownControl
 engine.load('Main.qml')
 assert engine.rootObjects()
 assert engine.rootObjects()[0].property('contentItem').isEnabled() is touch_enabled
+window = engine.rootObjects()[0]
+banner = window.findChild(QQuickItem, 'userMessageBanner')
+assert banner is not None and not banner.isVisible()
+controls.showUserMessage('Nie ukończono polecenia. Sprawdź stan wykonanych czynności.')
+app.processEvents()
+assert banner.isVisible() and banner.width() > 0 and banner.height() > 0
+label = banner.findChild(QQuickItem, 'userMessageText')
+assert label.property('text') == 'Nie ukończono polecenia. Sprawdź stan wykonanych czynności.'
+controls.showUserMessage('')
+app.processEvents()
+assert not banner.isVisible()
+controls.showUserMessage('Powtórz polecenie.')
+app.processEvents()
+if touch_enabled:
+    dismiss = banner.findChild(QQuickItem, 'dismissUserMessage')
+    assert dismiss.isEnabled()
+    assert QMetaObject.invokeMethod(dismiss, 'clicked', Qt.DirectConnection)
+    app.processEvents()
+    assert not banner.isVisible()
+controls.showUserMessage('Powtórz polecenie.')
+timer = window.findChild(QObject, 'userMessageTimer')
+assert timer.property('running')
+timer.setProperty('interval', 1)
+loop = QEventLoop()
+QTimer.singleShot(30, loop.quit)
+loop.exec()
+assert not banner.isVisible()
 component = QQmlComponent(engine)
 component.setData(b'import QtQuick; QtObject { property bool accepted: sessionControls.performTouch("contacts", "call_contact", ["Anna Kowalska", "work"]) }', QUrl())
 assert not component.isError(), [e.toString() for e in component.errors()]

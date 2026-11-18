@@ -1,6 +1,7 @@
 # Diagnoza generacji — 16 listopada 2026
 
-Źródło: lokalne raporty `logs/eksperymenty/seria_ABCD_20261113_142106_018432`.
+Poniższa analiza historyczna dotyczy raportów
+`logs/eksperymenty/seria_ABCD_20261113_142106_018432`.
 Odczytano 112 raportów sesji, w tym 4 warmupy. Nie zmieniano historycznych
 raportów i nie uruchamiano nowych modeli. Wyniki poniżej pochodzą z logów,
 a nie z ponowienia prób po poprawce.
@@ -71,3 +72,21 @@ i `OLLAMA_REASONING` dopiero po zebraniu danych diagnostycznych.
 Nie da się odtworzyć konfiguracji historycznego serwera z aktualnego lokalnego
 runtime. Zmiany promptu, planowania i kończenia wykonania oznaczają też zmianę
 warunków względem poprzedniej serii 108 prób.
+
+## Aktualny krok po serii 20261116
+
+Analiza serii `seria_ABCD_20261116_131324_326522` w rejestrze projektu
+potwierdza 12 generacji `done_reason=length`; D osiągnął 21/27, z ucięciami
+w Muzyka / audio 1. To nowsze dane niż powyższa diagnoza sumy 4096.
+Następna próba dotyczy tego przypadku D z jawnym `OLLAMA_REASONING=false`,
+bez jednoczesnego strojenia kontekstu i limitu generacji.
+
+Lokalny raport `logs/diagnostics/D_music_audio1_reasoning_false_20261116/`
+`session_20261116_171715_58907a1a.json` ma `ended_at=null`, aktywną turę
+i brak wyniku drugiego żądania. Potwierdza przesłanie `reasoning=false`
+oraz poprawny plan, ale nie wykonanie polecenia ani skuteczność konfiguracji.
+Nie traktować go jako sukcesu lub końcowego wyniku porównania.
+
+Tryb ręczny domyślnie wyłącza reasoning, chyba że podano wartość jawną.
+Tryb `--experiment` nadal dziedziczy ustawienia z konfiguracji/serwera.
+Polecenie pojedynczej próby, kryteria oraz odbiór sprzętu: [ACCEPTANCE.md](ACCEPTANCE.md).

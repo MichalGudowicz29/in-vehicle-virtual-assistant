@@ -14,6 +14,7 @@ from asr import resolve_model
 
 class VoiceWorker(QObject):
     finished = Signal()
+    userMessage = Signal(str)
 
     def __init__(self, car, report=None, audio_file: Path | None = None, asr: str | None = None):
         super().__init__()
@@ -62,6 +63,7 @@ class VoiceWorker(QObject):
                         break
                     continue
                 text = spoken_text
+                self.userMessage.emit('')
 
                 try:
                     if self.report is not None:
@@ -75,6 +77,7 @@ class VoiceWorker(QObject):
                         self.report.emit("session_error", turn_id=turn_id, error=str(error))
                         self.report.end_turn(turn_id, "failed")
                     print(f"Nie ukończono polecenia: {error}. Słucham dalej.", file=sys.stderr, flush=True)
+                    self.userMessage.emit('Nie ukończono polecenia. Sprawdź stan wykonanych czynności.')
                     turn_id = None
                     continue
                 if response:
