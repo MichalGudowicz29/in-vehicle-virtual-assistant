@@ -1,4 +1,4 @@
-# Domknięcie prototypu
+# Odbiór prototypu na urządzeniu
 
 ## Stan i zakres
 
@@ -32,7 +32,7 @@ Wynik sprawdź istniejącym kryterium runnera:
 uv run python - <<'PY'
 import json
 from pathlib import Path
-from runner import evaluate_session
+from experiments.evaluate import evaluate_session
 
 reports = sorted(Path('logs/diagnostics/D_music_audio1_reasoning_false_acceptance').glob('session_*.json'))
 if not reports:
