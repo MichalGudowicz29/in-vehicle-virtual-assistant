@@ -403,3 +403,85 @@ def test_silent_completion_records_turn_without_invoking_tts(monkeypatch, tmp_pa
     assert next(e for e in data['events'] if e['type'] == 'agent_end')['text'] == ''
     assert 'Synteza TTS' not in data['metrics']
     assert 'Odtwarzanie' not in data['metrics']
+
+
+def test_push_to_talk_listens_only_after_button_and_survives_silence(monkeypatch):
+    import threading
+    import voice_worker as module
+
+    listens, states, handled = [], [], []
+
+    class FakeAssistant:
+        def __init__(self, car):
+            pass
+
+        def handle_text(self, text, **kwargs):
+            handled.append(text)
+            worker.stop()
+            return ''
+
+    def listen(stop, **kwargs):
+        listens.append(stop)
+        if len(listens) == 1:
+            return None              # no speech before the timeout: back to idle
+        kwargs['on_event']('speech_detected')
+        return 'zadzwoń do Roberta'
+
+    monkeypatch.setattr('voice_worker.Assistant', FakeAssistant)
+    monkeypatch.setattr('asr.listen', listen)
+    worker = VoiceWorker(None, SessionReport(), push_to_talk=True)
+    from PySide6.QtCore import Qt
+    worker.stateChanged.connect(states.append, Qt.ConnectionType.DirectConnection)
+    thread = threading.Thread(target=worker.run)
+    thread.start()
+    threading.Event().wait(0.3)
+    assert listens == []             # microphone stays closed until the button
+    worker.request_talk()
+    threading.Event().wait(0.3)
+    assert len(listens) == 1 and thread.is_alive()
+    worker.request_talk()
+    thread.join(timeout=3)
+    assert handled == ['zadzwoń do Roberta']
+    assert isinstance(listens[0], module._ListenWindow)
+    assert states.count('listening') == 2 and 'processing' in states and states[-1] == ''
+
+
+def test_second_press_cancels_listening_window():
+    import voice_worker as module
+
+    worker = VoiceWorker(None, SessionReport(), push_to_talk=True)
+    window = module._ListenWindow(worker.stop_event)
+    worker._window = window
+    worker.request_talk()
+    assert window.is_set() and not worker._talk.is_set()
+    worker._window = None
+    worker.request_talk()
+    assert worker._talk.is_set()
+
+
+def test_listen_timeout_closes_window_only_without_speech(monkeypatch):
+    import voice_worker as module
+
+    monkeypatch.setattr(module, 'LISTEN_TIMEOUT_S', 0.05)
+    worker = VoiceWorker(None, SessionReport(), push_to_talk=True)
+    seen = {}
+
+    def listen(window, on_event, **kwargs):
+        threading_wait = __import__('threading').Event().wait
+        threading_wait(0.2)
+        seen['silent'] = window.is_set()
+        return None
+
+    monkeypatch.setattr('asr.listen', listen)
+    worker._listen(lambda *a, **k: None)
+    assert seen['silent'] is True
+
+    def listen_speaking(window, on_event, **kwargs):
+        on_event('speech_detected')
+        __import__('threading').Event().wait(0.2)
+        seen['speaking'] = window.is_set()
+        return 'tekst'
+
+    monkeypatch.setattr('asr.listen', listen_speaking)
+    assert worker._listen(lambda *a, **k: None) == 'tekst'
+    assert seen['speaking'] is False

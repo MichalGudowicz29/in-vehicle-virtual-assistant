@@ -17,19 +17,22 @@ Wymagania: [uv](https://docs.astral.sh/uv/), [Ollama](https://ollama.com/downloa
 uv sync --locked
 cp .env.example .env                                  # OLLAMA_MODEL, ASR_MODEL
 uv run python -m experiments.prepare_models           # LLM, Whisper, Vosk, TTS (wymaga internetu)
-uv run python main.py                                 # mikrofon + dotyk
+uv run python main.py                                 # przycisk „Mów” + dotyk
 ```
 
 Pliki `music/1.mp3`–`3.mp3` i nagrania `assets/voice/` nie są w gicie (MP3) — skopiuj je ręcznie.
 
 | Tryb | Polecenie |
 | --- | --- |
-| Mikrofon + dotyk (Whisper small) | `uv run python main.py` |
+| Przycisk „Mów” (push-to-talk) + dotyk, Whisper large-v3-turbo-q5_0 | `uv run python main.py` |
 | Jedna tura z pliku, potem wyjście | `uv run python main.py --audio-file assets/voice/Telefon/1.mp3` |
 | Inny ASR | `--asr vosk` / `whisper-small` / `whisper-medium` / `whisper-large` / `whisper-large-v3-turbo-q5_0` |
 | Folder raportów | `--report-dir logs/...` (domyślnie `logs/sessions/`) |
 | Seria pomiarowa A–D | `uv run python -m experiments.runner` |
 | Testy (bez mikrofonu i LLM) | `uv run pytest` |
+
+Mikrofon: najlepiej wbudowany lub przewodowy. Mikrofon słuchawek Bluetooth działa w trybie
+rozmowy (wąskie pasmo) i wyraźnie psuje rozpoznawanie.
 
 Na serwerze bez ekranu (SSH): `QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software`
 przed poleceniem; wyjście audio nadal musi działać.

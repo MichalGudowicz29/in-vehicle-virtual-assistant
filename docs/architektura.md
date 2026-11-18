@@ -89,7 +89,16 @@ sequenceDiagram
     end
 ```
 
-**ASR** (`asr/`): wspólny interfejs `listen` / `listen_file`. Whisper (whisper.cpp)
+**Push-to-talk** (tryb mikrofonowy): mikrofon otwiera się dopiero po przycisku „Mów”
+— odpowiednik przycisku głosowego na kierownicy w CarPlay. Jedno naciśnięcie to jedna
+wypowiedź; ponowne naciśnięcie anuluje, a brak mowy przez 8 s zamyka okno nasłuchu.
+Rozpoczęta wypowiedź nie jest ucinana. Przycisk pokazuje stan: „Mów”, „Słucham…”,
+„Przetwarzam…”. Ciągły nasłuch z VAD powodował fałszywe tury na szumie (halucynacje
+Whispera typu „[oklaski]”). Tryb plikowy i runner działają bez przycisku.
+
+**ASR** (`asr/`): w użyciu ręcznym domyślnie Whisper large-v3-turbo (kwantyzacja Q5_0,
+whisper.cpp z Metal); seria pomiarowa używa własnej macierzy (Vosk / Whisper small).
+Wspólny interfejs `listen` / `listen_file`. Whisper (whisper.cpp)
 dostaje audio mono 16 kHz; koniec wypowiedzi wyznacza WebRTC VAD (ramki 30 ms,
 0,45 s ciszy, min. 90 ms mowy). Vosk używa własnego endpointu. Plik audio jest
 podawany w tempie 1×, więc czasy są porównywalne z mikrofonem. Znaczniki Whispera

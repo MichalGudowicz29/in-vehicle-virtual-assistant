@@ -11,10 +11,10 @@ import pytest
 
 
 @pytest.mark.parametrize(('experiment', 'override', 'expected', 'reasoning', 'expected_reasoning'), [
-    (False, None, 'whisper-small', '', False),
+    (False, None, 'whisper-large-v3-turbo-q5_0', '', False),
     (False, 'vosk', 'vosk', '', False),
     (True, None, 'vosk', '', None),
-    (False, None, 'whisper-small', 'true', True),
+    (False, None, 'whisper-large-v3-turbo-q5_0', 'true', True),
 ])
 def test_cli_selects_manual_whisper_default_and_preserves_experiment_config(
         tmp_path, music_file, experiment, override, expected, reasoning, expected_reasoning):
@@ -33,6 +33,7 @@ music_file, output, audio_file, experiment, override, expected, expected_reasoni
 load = pygame.mixer.music.load
 pygame.mixer.music.load = lambda path: load(music_file)
 voice_worker.Assistant = lambda car: None
+voice_worker.VoiceWorker._wait_for_talk = lambda self: self.stop() or True   # one press, then quit
 def listen(*args, **kwargs):
     assert kwargs['asr'] == expected, kwargs['asr']
     assert str(config.LLM_GENERATION['reasoning']) == expected_reasoning
@@ -55,7 +56,8 @@ runpy.run_path('main.py', run_name='__main__')
     assert f'ASR: {expected}' in result.stdout
     assert result.stdout.index(f'ASR: {expected}') < result.stdout.index('LISTENING')
     data = json.loads(next(output.glob('*.json')).read_text())
-    assert data['models']['asr'].startswith('Whisper small' if expected == 'whisper-small' else 'Vosk')
+    assert data['models']['asr'] == ('Vosk small-pl-0.22' if expected == 'vosk'
+                                      else 'Whisper large-v3-turbo-q5_0 (whisper.cpp)')
 
 
 @pytest.mark.parametrize('asr_model', ['vosk', 'whisper-small'])

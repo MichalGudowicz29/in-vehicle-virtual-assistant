@@ -10,6 +10,8 @@ WHISPER_MODELS = {
     'whisper-large-v3-turbo-q5_0': 'large-v3-turbo-q5_0',
 }
 ASR_MODELS = ('vosk', *WHISPER_MODELS)
+# Manual use (microphone). The measurement series keeps its own matrix in experiments/runner.py.
+MANUAL_ASR = 'whisper-large-v3-turbo-q5_0'
 
 
 def resolve_model(asr: str | None = None) -> str:

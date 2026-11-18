@@ -1,7 +1,7 @@
 """Entry point: Qt GUI (touch) + background voice worker (ASR → LLM → TTS) + session report.
 
 Modes:
-  python main.py                         microphone, touch enabled
+  python main.py                         microphone (push-to-talk button), touch enabled
   python main.py --audio-file X.mp3      one voice turn from a file, then exit
   python main.py --experiment --audio-file X.mp3
                                          runner trial: no touch/mic, music starts on
@@ -23,7 +23,7 @@ from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtWidgets import QApplication
 
 import config
-from asr import ASR_MODELS, resolve_model
+from asr import ASR_MODELS, MANUAL_ASR, resolve_model
 from CarSystem.car_system import CarSystem
 from session_controls import SessionControls
 from session_report import SessionReport
@@ -37,7 +37,7 @@ def parse_args():
     parser.add_argument("--experiment", action="store_true",
                         help="Tryb runnera: wyłącznie plik audio, bez obsługi dotykowej.")
     parser.add_argument("--asr", choices=ASR_MODELS,
-                        help="Model ASR (domyślnie whisper-small; w --experiment: ASR_MODEL z .env).")
+                        help=f"Model ASR (domyślnie {MANUAL_ASR}; w --experiment: ASR_MODEL z .env).")
     parser.add_argument("--report-dir", type=Path, default=Path("logs/sessions"),
                         help="Folder raportów TXT i JSON (domyślnie: logs/sessions).")
     args, qt_args = parser.parse_known_args()
@@ -47,8 +47,8 @@ def parse_args():
     if not args.experiment and config.LLM_GENERATION['reasoning'] is None:
         config.LLM_GENERATION['reasoning'] = False   # manual use: no thinking unless set in .env
     try:
-        # The runner controls ASR through .env; manual use defaults to Whisper small.
-        args.asr = resolve_model(args.asr if args.asr is not None or args.experiment else "whisper-small")
+        # The runner controls ASR through the environment; manual use has its own default.
+        args.asr = resolve_model(args.asr if args.asr is not None or args.experiment else MANUAL_ASR)
     except ValueError as error:
         parser.error(str(error))
     if args.audio_file is not None:
@@ -88,11 +88,17 @@ def main():
 
     # Model: simulated head unit shared by touch and voice.
     car = CarSystem(initial_music_track_index=1 if args.experiment else 0)
-    session_controls = SessionControls(car, report, touch_enabled=not args.experiment)
+    push_to_talk = args.audio_file is None
+    session_controls = SessionControls(car, report, touch_enabled=not args.experiment,
+                                       push_to_talk=push_to_talk)
 
     # Voice loop in a background thread.
-    voice_worker = VoiceWorker(car, report, audio_file=args.audio_file, asr=args.asr)
+    voice_worker = VoiceWorker(car, report, audio_file=args.audio_file, asr=args.asr,
+                               push_to_talk=push_to_talk)
     voice_worker.userMessage.connect(session_controls.showUserMessage)
+    voice_worker.stateChanged.connect(session_controls.setVoiceState)
+    # Direct: the worker thread is busy in its loop, so the request must not wait in its event queue.
+    session_controls.talkRequested.connect(voice_worker.request_talk, Qt.ConnectionType.DirectConnection)
     assistant_thread = QThread()
     voice_worker.moveToThread(assistant_thread)
     assistant_thread.started.connect(voice_worker.run)

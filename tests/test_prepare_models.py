@@ -14,6 +14,7 @@ def test_models_follow_runner_and_are_pulled_once(monkeypatch, tmp_path):
         ('A', 'vosk', 'test:2b'), ('B', 'whisper-small', 'test:2b'),
         ('C', 'whisper-medium', 'test:4b'),
     ))
+    monkeypatch.setattr(prepare_models, 'MANUAL_ASR', 'whisper-large-v3-turbo-q5_0')
     calls, downloads, tts_options = [], [], []
     monkeypatch.setattr(subprocess, 'run', lambda args, **kwargs: calls.append((args, kwargs)))
 
@@ -37,7 +38,7 @@ def test_models_follow_runner_and_are_pulled_once(monkeypatch, tmp_path):
     assert [call[0] for call in calls] == [
         ['ollama', 'pull', 'test:2b'], ['ollama', 'pull', 'test:4b']]
     assert all(call[1]['check'] and call[1]['env']['OLLAMA_HOST'] == '127.0.0.1:11434' for call in calls)
-    assert downloads == [prepare_models.VOSK_URL, 'small', 'medium']
+    assert downloads == [prepare_models.VOSK_URL, 'small', 'medium', 'large-v3-turbo-q5_0']
     assert (tmp_path / 'models' / prepare_models.VOSK_MODEL / 'am/final.mdl').read_bytes() == b'weights'
     assert tts_options == [{'auto_download': True}]
     assert (tmp_path / 'models/whisper/ggml-small.bin').read_bytes().startswith(b'lmgg')
@@ -57,6 +58,7 @@ def test_check_uses_cached_models_without_downloads(monkeypatch, tmp_path):
 
     monkeypatch.setattr(prepare_models, 'ROOT', tmp_path)
     monkeypatch.setattr(prepare_models, 'VARIANTS', (('A', 'whisper-small', 'test:2b'),))
+    monkeypatch.setattr(prepare_models, 'MANUAL_ASR', 'whisper-small')
     for title in ('Muzyka', 'Telefon', 'Nawigacja'):
         folder = tmp_path / 'assets/voice' / title
         folder.mkdir(parents=True)
@@ -85,6 +87,7 @@ def test_failed_download_does_not_leave_model_in_final_location(monkeypatch, tmp
 
     monkeypatch.setattr(prepare_models, 'ROOT', tmp_path)
     monkeypatch.setattr(prepare_models, 'VARIANTS', (('A', 'whisper-small', 'test:2b'),))
+    monkeypatch.setattr(prepare_models, 'MANUAL_ASR', 'whisper-small')
     monkeypatch.setattr(subprocess, 'run', lambda *args, **kwargs: None)
 
     def bad_download(size, folder):

@@ -12,7 +12,7 @@ from tempfile import TemporaryDirectory
 from urllib.request import urlretrieve
 from zipfile import ZipFile
 
-from asr import ASR_MODELS, WHISPER_MODELS
+from asr import ASR_MODELS, MANUAL_ASR, WHISPER_MODELS
 from experiments.runner import ROOT, SCENARIOS, RECORDINGS, VARIANTS
 
 
@@ -50,7 +50,8 @@ def _download_vosk(folder):
 
 
 def prepare(*, check=False):
-    asrs = list(dict.fromkeys(asr for _, asr, _ in VARIANTS))
+    # Runner variants plus the default ASR of manual (microphone) use.
+    asrs = list(dict.fromkeys([*(asr for _, asr, _ in VARIANTS), MANUAL_ASR]))
     llms = list(dict.fromkeys(llm for _, _, llm in VARIANTS))
     for asr in asrs:
         if asr not in ASR_MODELS:

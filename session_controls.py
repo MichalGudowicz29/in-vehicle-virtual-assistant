@@ -14,13 +14,38 @@ ACTIONS = {
 
 class SessionControls(QObject):
     userMessageChanged = Signal()
+    voiceStateChanged = Signal()
+    talkRequested = Signal()   # connected directly to VoiceWorker.request_talk
 
-    def __init__(self, car, report, *, touch_enabled=True):
+    def __init__(self, car, report, *, touch_enabled=True, push_to_talk=False):
         super().__init__()
         self.car = car
         self.report = report
         self._touch_enabled = touch_enabled
+        self._push_to_talk = push_to_talk
         self._user_message = ''
+        self._voice_state = ''
+
+    @Property(bool, constant=True)
+    def pushToTalk(self):
+        return self._push_to_talk
+
+    @Property(str, notify=voiceStateChanged)
+    def voiceState(self):
+        """'' idle, 'listening', 'processing' — drives the talk button."""
+        return self._voice_state
+
+    @Slot(str)
+    def setVoiceState(self, state):
+        if state != self._voice_state:
+            self._voice_state = state
+            self.voiceStateChanged.emit()
+
+    @Slot()
+    def talk(self):
+        if self._push_to_talk and self._voice_state != 'processing':
+            self.report.emit('touch', action='talk')
+            self.talkRequested.emit()
 
     @Property(str, notify=userMessageChanged)
     def userMessage(self):

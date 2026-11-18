@@ -132,6 +132,32 @@ ApplicationWindow {
         }
     }
 
+    // Push-to-talk: like the voice button on a steering wheel. One press = one command.
+    AppButton {
+        id: talkButton
+        objectName: "talkButton"
+        anchors.right: parent.right
+        anchors.bottom: screenKeyboard.top
+        anchors.margins: 24
+        z: 200
+        visible: sessionControls.pushToTalk
+        enabled: sessionControls.voiceState !== "processing"
+        implicitWidth: 220
+        implicitHeight: 72
+        text: sessionControls.voiceState === "listening" ? "Słucham… (anuluj)"
+            : sessionControls.voiceState === "processing" ? "Przetwarzam…"
+            : "🎤 Mów"
+        Accessible.name: text
+        background: Rectangle {
+            radius: height / 2
+            color: sessionControls.voiceState === "listening" ? theme.accentPressed
+                : talkButton.down ? theme.surfacePressed : theme.surfaceRaised
+            border.color: theme.accent
+            border.width: 2
+        }
+        onClicked: sessionControls.talk()
+    }
+
     Connections {
         target: car.navigation
 
