@@ -40,6 +40,7 @@ class PlanGuard:
         self.answer_required = False
         self.next_index = 0
         self.completed: dict[tuple, dict] = {}
+        self.failed: set[tuple] = set()          # effects that already failed with these arguments
         self.response_tools: set[str] = set()   # tools requested in the latest model response
         self.blocked_reason: str | None = None
         self.listed_track_titles: set[str] = set()
@@ -75,6 +76,8 @@ class PlanGuard:
             if result.get('success') is True:
                 self.completed[key] = result
                 self.next_index += 1
+            else:
+                self.failed.add(key)
             return result
 
     def _refusal(self, name, key) -> str | None:
@@ -84,6 +87,8 @@ class PlanGuard:
             return 'plan_not_observed'            # plan and effect in the same model response
         if key in self.completed and name in ONCE_PER_TURN:
             return 'duplicate_action'
+        if key in self.failed:
+            return 'repeated_failure'             # same arguments cannot succeed now; stop the loop
         if self.actions is None:
             return 'missing_plan'
         if self.next_index >= len(self.actions) or self.actions[self.next_index] != name:

@@ -127,8 +127,11 @@ przyjęto schemat **plan-then-execute z deterministycznym strażnikiem**:
    z listą akcji wykonawczych. Plan zapisuje aplikacja; jest niezmienny w turze.
 2. **Wykonanie** — `PlanGuard.execute` przepuszcza do kontrolera wyłącznie
    następną akcję planu. Odmawia, gdy: brak planu, akcja poza kolejnością,
-   powtórzenie udanego efektu z tymi samymi argumentami, plan i efekt w tej samej
-   odpowiedzi modelu. Pierwsza odmowa przerywa resztę tury.
+   powtórzenie udanego efektu z tymi samymi argumentami, ponowienie nieudanej akcji
+   z identycznymi argumentami (od 2026-11-18; wcześniej model potrafił 11 razy
+   ponawiać ten sam błędny adres aż do limitu kroków), plan i efekt w tej samej
+   odpowiedzi modelu. Ponowienie z poprawionymi argumentami jest dozwolone.
+   Pierwsza odmowa przerywa resztę tury.
 3. **Zakończenie** — po sukcesie wszystkich akcji middleware zwraca pustą
    odpowiedź bez kolejnego żądania do LLM. Gdy użytkownik zapytał też o informację
    (`answer_required`), model dostaje tylko narzędzia odczytu i musi odpowiedzieć.

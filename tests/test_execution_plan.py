@@ -342,3 +342,38 @@ def test_voice_playback_sets_requested_state(execution, qt_call, name, initially
     assert car.music.isPlaying is expected
     assert model.requests == 2
     assert 'play_pause' not in {tool.name for tool in assistant.build_tools()}
+
+
+def test_identical_retry_of_failed_action_stops_turn_without_controller_call(execution, qt_call, monkeypatch):
+    import assistant.tools as tools
+    from assistant import IncompleteExecutionError
+
+    unknown = {'street': 'Żołnierska', 'city': 'Warszawa', 'number': '1'}
+    assistant, car, model, report = execution(
+        tool_response(('set_action_plan', {'actions': ['navigate_to']})),
+        tool_response(('navigate_to', unknown)),
+        tool_response(('navigate_to', unknown)),
+    )
+    calls = []
+    original = tools.perform
+    monkeypatch.setattr(tools, 'perform', lambda car, action, payload: calls.append(action) or original(car, action, payload))
+    with pytest.raises(IncompleteExecutionError, match='repeated_failure'):
+        qt_call(lambda: assistant.handle_text('Ustaw nawigację na Żołnierską', report=report,
+                                            turn_id=report.begin_turn()))
+    assert calls == ['set_destination']          # second identical attempt never reached the car
+    assert model.requests == 3                    # no further LLM request after the refusal
+    blocked = [json.loads(e['output']) for e in report.snapshot()['events']
+               if e['type'] == 'tool_end' and e['name'] == 'navigate_to' and 'blocked' in e['output']]
+    assert blocked[0]['reason'] == 'repeated_failure'
+
+
+def test_failed_action_may_be_retried_with_corrected_arguments(execution, qt_call):
+    assistant, car, model, report = execution(
+        tool_response(('set_action_plan', {'actions': ['navigate_to']})),
+        tool_response(('navigate_to', {'street': 'Żołnierska', 'city': 'Warszawa', 'number': '1'})),
+        tool_response(('get_places_list', {})),
+        tool_response(('navigate_to', {'street': 'Żołnierska', 'city': 'Szczecin', 'number': '47'})),
+    )
+    assert qt_call(lambda: assistant.handle_text('Ustaw nawigację na Żołnierską', report=report,
+                                                turn_id=report.begin_turn())) == ''
+    assert car.navigation.destination == 'ul. Żołnierska 47, Szczecin'
