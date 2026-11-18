@@ -13,6 +13,20 @@ def _address_tokens(address: str) -> list[str]:
     return tokens[1:] if tokens and tokens[0] in {"ul", "ulica"} else tokens
 
 
+# Spoken connectives ("na Żołnierską 47 w Szczecinie") carry no address information.
+_QUERY_STOPWORDS = {"w", "we", "na", "do", "ul", "ulica", "ulicy", "ulice", "ulicę"}
+
+
+def _word_matches(term: str, word: str) -> bool:
+    if term[0].isdigit():
+        return term == word                      # house numbers only as a whole (47 ≠ 147)
+    if term in word:
+        return True                              # typed fragment, e.g. "niers"
+    # Polish inflection: "szczecinie" / "żołnierskiej" match "szczecin" / "żołnierska".
+    stem = max(4, len(word) - 2)
+    return len(term) >= 5 and len(word) >= 5 and term[:stem] == word[:stem]
+
+
 class NavigationController(QObject):
     """Destination and stops chosen from a local place list; drawn on a schematic map."""
     destinationChanged = Signal()
@@ -92,14 +106,13 @@ class NavigationController(QObject):
 
     @Slot(str, result="QVariantList")
     def search_places(self, query: str):
-        terms = _address_tokens(query)
+        terms = [term for term in _address_tokens(query) if term not in _QUERY_STOPWORDS]
         if not terms:
             return []
         matches = []
         for place in self._places.values():
             words = _address_tokens(place["address"])
-            if all(any(term == word if term[0].isdigit() else term in word
-                       for word in words) for term in terms):
+            if all(any(_word_matches(term, word) for word in words) for term in terms):
                 matches.append(place.copy())
 
         def rank(place):

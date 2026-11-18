@@ -119,6 +119,14 @@ między turami) i 13 narzędziami (`tools.py`): odczyty (`get_contacts`, `get_tr
 (`call_contact`, `navigate_to`, `add_stop`, `select_track`, `pause_music`,
 `resume_music`, `next_track`, `previous_track`).
 
+Nawigacja: `navigate_to(address)` i `add_stop(address)` przyjmują adres tak, jak
+powiedział użytkownik („Żołnierska 47”). Aplikacja dopasowuje go do bazy miejsc
+(bez `ul.`, polskich znaków, z odmianą: „na Żołnierską 47 w Szczecinie”, numer
+domu tylko w całości). Gdy dopasowanie nie jest jednoznaczne, wynik zawiera listę
+kandydatów i prośbę o doprecyzowanie zamiast zgadywania. Wersja z serii 16.11
+miała pola `street`/`city`/`number`, przez co mały model dopisywał brakujące miasto
+(np. „Warszawa”) i cel nie był ustawiany.
+
 Małe lokalne modele (2B/4B) w pilotażu powtarzały akcje (np. trzy połączenia),
 wykonywały niezamówione (pauza po wyborze utworu) i nie kończyły tury. Dlatego
 przyjęto schemat **plan-then-execute z deterministycznym strażnikiem**:

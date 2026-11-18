@@ -1,22 +1,16 @@
 """LLM tools: read-only lookups and guarded effects on the car controllers.
 
-Tool names, docstrings, arguments and result dictionaries are part of the model input;
-they are unchanged from the version measured in the 16.11 series.
+Tool names, docstrings, arguments and result dictionaries are part of the model input.
+Change against the 16.11 series (2026-11-18): navigate_to/add_stop take the address as
+spoken and the application matches it to the place base, instead of street/city/number
+fields that made a small model invent a missing city.
 """
 
-import re
 from typing import Annotated, Literal
 
 from langchain.tools import InjectedToolArg, ToolRuntime, tool  # type: ignore
 
 from .plan_guard import ActionName, PlanGuard
-
-
-def format_address(street: str, city: str, number: str) -> str:
-    street = re.sub(r'^(?:ulica\b|ul(?:\.|\b))\s*', '', street.strip(), flags=re.IGNORECASE)
-    number = number.strip()
-    street = re.sub(rf'\s+{re.escape(number)}$', '', street, flags=re.IGNORECASE)
-    return f'ul. {street} {number}, {city.strip()}'
 
 
 def perform(car, action: str, payload: dict) -> dict:
@@ -27,11 +21,19 @@ def perform(car, action: str, payload: dict) -> dict:
         return {'success': bool(requested), 'action': action,
                 'contact_name': payload['name'], 'number_type': payload['number_type']}
     if action in ('set_destination', 'add_stop'):
+        navigation = car.navigation
         address = payload['address']
-        method = car.navigation.set_destination if action == 'set_destination' else car.navigation.add_stop
-        success = bool(address.strip()) and bool(method(address))
-        field = 'destination' if action == 'set_destination' else 'stop'
-        return {'success': success, 'action': action, field: address}
+        method = navigation.set_destination if action == 'set_destination' else navigation.add_stop
+        if address.strip() and method(address):
+            matched = navigation.destination if action == 'set_destination' else navigation.stops[-1]['address']
+            return {'success': True, 'action': action,
+                    'destination' if action == 'set_destination' else 'stop': matched}
+        candidates = [place['address'] for place in navigation.search_places(address)]
+        return {'success': False, 'action': action,
+                'message': ('Adres niejednoznaczny: wybierz jeden z kandydatów albo dopytaj użytkownika.'
+                            if candidates else
+                            'Nie ma takiego adresu w bazie miejsc. Nie zgaduj; dopytaj użytkownika.'),
+                'candidates': candidates or [place['address'] for place in navigation.places_list.values()]}
     if action == 'set_playback':
         requested = music.set_playback(payload['playing'])
     elif action == 'next_track':
@@ -124,14 +126,14 @@ def build_tools(car, guard: PlanGuard) -> list:
 
     # Nawigacja
     @tool
-    def navigate_to(street: str, city: str, number: str):
-        """Ustawia cel nawigacji na podany adres. street, city i number muszą być podane."""
-        return guarded('navigate_to', 'set_destination', {"address": format_address(street, city, number)})
+    def navigate_to(address: str):
+        """Ustawia cel nawigacji. address: adres dokładnie tak, jak podał użytkownik, np. "Żołnierska 47"; nie dopisuj miasta ani numeru, których nie podał. Aplikacja dopasuje adres do bazy miejsc; gdy się nie uda, zwróci kandydatów."""
+        return guarded('navigate_to', 'set_destination', {"address": address.strip()})
 
     @tool
-    def add_stop(street: str, city: str, number: str):
-        """Dodaje przystanek do trasy na podany adres. street, city i number muszą być podane."""
-        return guarded('add_stop', 'add_stop', {"address": format_address(street, city, number)})
+    def add_stop(address: str):
+        """Dodaje przystanek do trasy. address: adres tak, jak podał użytkownik; aplikacja dopasuje go do bazy miejsc i przy niepowodzeniu zwróci kandydatów."""
+        return guarded('add_stop', 'add_stop', {"address": address.strip()})
 
     @tool
     def get_places_list():

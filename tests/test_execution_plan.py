@@ -49,7 +49,7 @@ def execution(monkeypatch):
 
 @pytest.mark.parametrize('name, arguments', [
     ('call_contact', {'name': 'Robert Lewandowski', 'number_type': 'mobile'}),
-    ('navigate_to', {'street': 'Żołnierska', 'city': 'Szczecin', 'number': '47'}),
+    ('navigate_to', {'address': 'Żołnierska 47'}),
     ('select_track', {'title': 'Christmas Eve'}),
 ])
 def test_success_finishes_without_another_llm_request(execution, qt_call, name, arguments):
@@ -68,7 +68,7 @@ def test_compound_command_continues_until_every_action_succeeds(execution, qt_ca
     assistant, car, model, report = execution(
         tool_response(('set_action_plan', {'actions': ['navigate_to', 'call_contact']})),
         tool_response(('get_contacts', {})),
-        tool_response(('navigate_to', {'street': 'Żołnierska', 'city': 'Szczecin', 'number': '47'})),
+        tool_response(('navigate_to', {'address': 'Żołnierska 47'})),
         tool_response(('call_contact', {'name': 'Robert Lewandowski', 'number_type': 'mobile'})),
     )
     assert qt_call(lambda: assistant.handle_text('Ustaw trasę i zadzwoń', report=report,
@@ -109,7 +109,7 @@ def test_unrequested_toggle_after_selection_is_blocked(execution, qt_call):
         tool_response(('get_track_list', {})),
         tool_response(('select_track', {'title': 'Christmas Eve'})),
         tool_response(('pause_music', {})),
-        tool_response(('navigate_to', {'street': 'Żołnierska', 'city': 'Szczecin', 'number': '47'})),
+        tool_response(('navigate_to', {'address': 'Żołnierska 47'})),
     )
     with pytest.raises(RuntimeError, match='unplanned_action'):
         qt_call(lambda: assistant.handle_text('Włącz utwór i ustaw trasę', report=report,
@@ -348,7 +348,7 @@ def test_identical_retry_of_failed_action_stops_turn_without_controller_call(exe
     import assistant.tools as tools
     from assistant import IncompleteExecutionError
 
-    unknown = {'street': 'Żołnierska', 'city': 'Warszawa', 'number': '1'}
+    unknown = {'address': 'Żołnierska 1, Warszawa'}
     assistant, car, model, report = execution(
         tool_response(('set_action_plan', {'actions': ['navigate_to']})),
         tool_response(('navigate_to', unknown)),
@@ -370,9 +370,9 @@ def test_identical_retry_of_failed_action_stops_turn_without_controller_call(exe
 def test_failed_action_may_be_retried_with_corrected_arguments(execution, qt_call):
     assistant, car, model, report = execution(
         tool_response(('set_action_plan', {'actions': ['navigate_to']})),
-        tool_response(('navigate_to', {'street': 'Żołnierska', 'city': 'Warszawa', 'number': '1'})),
+        tool_response(('navigate_to', {'address': 'Żołnierska 1, Warszawa'})),
         tool_response(('get_places_list', {})),
-        tool_response(('navigate_to', {'street': 'Żołnierska', 'city': 'Szczecin', 'number': '47'})),
+        tool_response(('navigate_to', {'address': 'Żołnierska 47'})),
     )
     assert qt_call(lambda: assistant.handle_text('Ustaw nawigację na Żołnierską', report=report,
                                                 turn_id=report.begin_turn())) == ''

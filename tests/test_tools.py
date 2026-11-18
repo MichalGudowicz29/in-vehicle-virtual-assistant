@@ -69,44 +69,51 @@ def test_selection_rechecks_library_after_listing():
 
 
 @pytest.mark.parametrize('tool_name', ['navigate_to', 'add_stop'])
-@pytest.mark.parametrize('street, number', [
-    ('Żołnierska', '47'),
-    ('ul. Żołnierska', '47'),
-    ('UL.Żołnierska', '47'),
-    ('ulica Żołnierska', '47'),
-    ('  ul. Żołnierska 47  ', ' 47 '),
-    ('Żołnierska 47', '47'),
+@pytest.mark.parametrize('address', [
+    'Żołnierska 47',
+    'ul. Żołnierska 47, Szczecin',
+    'ulica Żołnierską 47',
+    'na Żołnierską 47 w Szczecinie',
+    'Żołnierskiej 47',
 ])
-def test_address_tools_accept_street_with_or_without_prefix_and_house_number(tool_name, street, number):
+def test_address_tools_match_spoken_address_to_place_base(tool_name, address):
     car = CarSystem()
     assistant = Assistant.__new__(Assistant)
     assistant.car = car
     tools = {tool.name: tool for tool in assistant.build_tools()}
     tools['set_action_plan'].invoke({'actions': [tool_name]})
-    tool = tools[tool_name]
-    result = tool.invoke({'street': street, 'city': 'Szczecin', 'number': number})
+    result = tools[tool_name].invoke({'address': address})
     assert result['success'] is True
     assert result['destination' if tool_name == 'navigate_to' else 'stop'] == 'ul. Żołnierska 47, Szczecin'
     assert car.navigation.routePoints[-1]['address'] == 'ul. Żołnierska 47, Szczecin'
 
 
-@pytest.mark.parametrize('street', ['ul. Żołnierska 147', 'ul. Żołnierska 47a'])
-def test_address_tool_does_not_silently_replace_conflicting_house_number(street):
+@pytest.mark.parametrize('address', ['ul. Żołnierska 147', 'Żołnierska 47a', 'Żołnierska 47, Warszawa'])
+def test_address_tool_rejects_other_address_and_offers_candidates(address):
     car = CarSystem()
     assistant = Assistant.__new__(Assistant)
     assistant.car = car
     tools = {tool.name: tool for tool in assistant.build_tools()}
     tools['set_action_plan'].invoke({'actions': ['navigate_to']})
-    tool = tools['navigate_to']
-    assert tool.invoke({'street': street, 'city': 'Szczecin', 'number': '47'})['success'] is False
+    result = tools['navigate_to'].invoke({'address': address})
+    assert result['success'] is False
+    assert 'ul. Żołnierska 47, Szczecin' in result['candidates']
     assert car.navigation.destination == ''
+
+
+def test_address_tool_schema_takes_only_spoken_address():
+    assistant = Assistant.__new__(Assistant)
+    assistant.car = CarSystem()
+    tools = {tool.name: tool for tool in assistant.build_tools()}
+    for name in ('navigate_to', 'add_stop'):
+        assert set(tools[name].tool_call_schema.model_json_schema()['properties']) == {'address'}
 
 
 def test_perform_reports_controller_outcome_for_the_model():
     car = CarSystem()
     assert perform(car, 'call_contact', {'name': 'Robert Lewandowski', 'number_type': 'mobile'}) == {
         'success': True, 'action': 'call_contact', 'contact_name': 'Robert Lewandowski', 'number_type': 'mobile'}
-    assert perform(car, 'set_destination', {'address': '  '}) == {
-        'success': False, 'action': 'set_destination', 'destination': '  '}
+    failed = perform(car, 'set_destination', {'address': '  '})
+    assert failed['success'] is False and len(failed['candidates']) == 3
     with pytest.raises(ValueError):
         perform(car, 'play_pause', {})
