@@ -143,3 +143,17 @@ def test_call_contact_accepts_polish_number_labels(number_type):
     tools['set_action_plan'].invoke({'actions': ['call_contact']})
     result = tools['call_contact'].invoke({'name': 'Anny Kowalskiej', 'number_type': number_type})
     assert result['success'] is True and result['number_type'] == 'mobile'
+
+
+def test_voice_can_remove_stop_and_clear_route():
+    car = CarSystem()
+    assistant = Assistant.__new__(Assistant)
+    assistant.car = car
+    tools = {tool.name: tool for tool in assistant.build_tools()}
+    tools['set_action_plan'].invoke({'actions': ['navigate_to', 'add_stop', 'remove_stop', 'clear_route']})
+    assert tools['navigate_to'].invoke({'address': 'Żołnierska'})['success']
+    assert tools['add_stop'].invoke({'address': 'stacyjna'})['success']
+    assert tools['remove_stop'].invoke({'address': 'na Stacyjnej'}) == {
+        'success': True, 'action': 'remove_stop', 'stops': []}
+    assert tools['clear_route'].invoke({})['success']
+    assert car.navigation.destination == '' and car.navigation.stops == []

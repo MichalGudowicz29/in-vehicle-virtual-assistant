@@ -69,6 +69,15 @@ def perform(car, action: str, payload: dict) -> dict:
         return _call(car, payload)
     if action in ('set_destination', 'add_stop'):
         return _route(car, action, payload)
+    if action == 'remove_stop':
+        navigation = car.navigation
+        if navigation.remove_stop(payload['address']):
+            return {'success': True, 'action': action, 'stops': [s['address'] for s in navigation.stops]}
+        return {'success': False, 'action': action,
+                'message': 'Nie ma takiego przystanku na trasie. Powiedz o tym krótko.',
+                'stops': [s['address'] for s in navigation.stops]}
+    if action == 'clear_route':
+        return {'success': bool(car.navigation.clear_route()), 'action': action}
     if action == 'select_track':
         matches = find_tracks(music.tracks, payload['title'])
         if len(matches) != 1:
@@ -159,6 +168,16 @@ def build_tools(car, guard: PlanGuard) -> list:
         return guarded('add_stop', 'add_stop', {"address": address.strip()})
 
     @tool
+    def remove_stop(address: str):
+        """Usuwa przystanek z trasy. address: adres przystanku tak, jak podał użytkownik."""
+        return guarded('remove_stop', 'remove_stop', {"address": address.strip()})
+
+    @tool
+    def clear_route():
+        """Czyści trasę: usuwa cel i wszystkie przystanki."""
+        return guarded('clear_route', 'clear_route', {})
+
+    @tool
     def get_places_list():
         """Zwraca zapisane miejsca. Potrzebne tylko do pytań o miejsca, nie do ustawiania celu."""
         return {"success": True, "places": [p["address"] for p in car.navigation.places_list.values()]}
@@ -166,7 +185,7 @@ def build_tools(car, guard: PlanGuard) -> list:
     # Order matters: it is the order of tool schemas in the model request.
     return [set_action_plan, pause_music, resume_music, next_track, previous_track,
             select_track, get_track_list, call_contact, get_contacts, navigate_to, add_stop,
-            get_places_list]
+            remove_stop, clear_route, get_places_list]
 
 
 LOOKUP_TOOLS = ('get_contacts', 'get_track_list', 'get_places_list')

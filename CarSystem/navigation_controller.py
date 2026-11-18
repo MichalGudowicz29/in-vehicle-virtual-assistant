@@ -143,6 +143,7 @@ class NavigationController(QObject):
         return True
 
     @Slot(str, result=bool)
+    @on_gui_thread
     def remove_stop(self, address: str):
         place = self.get_coordinates(address)
         if place is None:
@@ -157,6 +158,7 @@ class NavigationController(QObject):
         return False
 
     @Slot(result=bool)
+    @on_gui_thread
     def clear_route(self):
         self._stops.clear()
         self._destination = ""

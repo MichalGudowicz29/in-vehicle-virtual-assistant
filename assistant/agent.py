@@ -7,6 +7,7 @@
    request (silent success), unless the user also asked a question (ANSWER_PROMPT).
 """
 
+import json
 from typing import get_args
 from uuid import uuid4
 
@@ -40,6 +41,10 @@ def warm_up_llm() -> None:
                    timeout=120, trust_env=False)
     except httpx.HTTPError:
         pass   # an unavailable server is reported on the first command
+
+
+def _truthy(value) -> bool:
+    return value is True or str(value).strip().lower() == 'true'
 
 
 class Assistant:
@@ -81,14 +86,18 @@ class Assistant:
                 system_message=SystemMessage(content=ANSWER_PROMPT))
         response = handler(request)
         if planning:
-            message = response.result[-1]
-            # Accept an explicit plan from a tool-capable model as well as JSON.
-            if not (len(message.tool_calls) == 1 and message.tool_calls[0]['name'] == 'set_action_plan'):
-                response.result = [AIMessage(content='', tool_calls=[{
-                    'name': 'set_action_plan', 'args': self._plan_from(message).model_dump(),
-                    'id': f'plan-{uuid4()}'}])]
-        guard.response_tools = {call['name'] for message in response.result
-                                for call in getattr(message, 'tool_calls', [])}
+            # The application writes the (validated) plan; the model's own tool call is replaced.
+            response.result = [AIMessage(content='', tool_calls=[{
+                'name': 'set_action_plan', 'args': self._plan_from(response.result[-1]).model_dump(),
+                'id': f'plan-{uuid4()}'}])]
+        calls = [call for message in response.result for call in getattr(message, 'tool_calls', [])]
+        signatures = {(call['name'], json.dumps(call['args'], sort_keys=True, ensure_ascii=False))
+                      for call in calls}
+        if signatures & guard.seen_calls:
+            # A small model can resend the same call until the step limit (~25 s); stop at once.
+            raise IncompleteExecutionError('Model powtórzył to samo wywołanie narzędzia. Powtórz polecenie.')
+        guard.seen_calls |= signatures
+        guard.response_tools = {call['name'] for call in calls}
         return response
 
     @staticmethod
@@ -100,6 +109,13 @@ class Assistant:
             return ExecutionPlan.model_validate_json(message.text)
         except ValidationError:
             pass
+        plans = [call['args'] for call in message.tool_calls if call['name'] == 'set_action_plan']
+        if plans:
+            requested = plans[0].get('actions') or []
+            supported = [name for name in requested if name in ACTION_NAMES]
+            # An action the car does not offer ("otwórz okno") becomes a short answer, not a loop.
+            return ExecutionPlan(actions=supported,
+                                 answer_required=not supported or _truthy(plans[0].get('answer_required')))
         actions = [call['name'] for call in message.tool_calls if call['name'] in ACTION_NAMES]
         if actions:
             return ExecutionPlan(actions=actions)            # direct action call: its effects run later

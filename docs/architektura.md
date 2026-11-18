@@ -99,6 +99,8 @@ halucynuje teksty typu „[oklaski]”. Tryb plikowy i runner działają bez prz
 **ASR** (`asr/`): Whisper large-v3-turbo w kwantyzacji Q5_0 (whisper.cpp, na Apple
 Silicon przez Metal); Vosk i mniejsze Whispery są dostępne parametrem `--asr`.
 Modele ASR i LLM są ładowane przy starcie aplikacji, a nie przy pierwszym poleceniu.
+Dekodowanie trwa ~1,6 s niezależnie od długości polecenia, bo turbo zawsze przetwarza
+30-sekundowe okno; skrócenie okna (`audio_ctx`) psuło transkrypcje, więc go nie użyto.
 Wspólny interfejs `listen` / `listen_file`. Whisper (whisper.cpp)
 dostaje audio mono 16 kHz; koniec wypowiedzi wyznacza WebRTC VAD (ramki 30 ms,
 0,45 s ciszy, min. 90 ms mowy). Vosk używa własnego endpointu. Plik audio jest
@@ -115,9 +117,10 @@ czynności.” (8 s), a pętla wraca do nasłuchu; dotyk działa cały czas.
 ## 4. Agent i strażnik planu
 
 `assistant/` to agent LangChain (`create_agent`) z pamięcią rozmowy (doprecyzowania
-między turami) i 12 narzędziami (`tools.py`): odczyty (`get_contacts`, `get_track_list`,
+między turami) i 14 narzędziami (`tools.py`): odczyty (`get_contacts`, `get_track_list`,
 `get_places_list`), plan (`set_action_plan`) i efekty (`call_contact`, `navigate_to`,
-`add_stop`, `select_track`, `pause_music`, `resume_music`, `next_track`, `previous_track`).
+`add_stop`, `remove_stop`, `clear_route`, `select_track`, `pause_music`, `resume_music`,
+`next_track`, `previous_track`).
 
 **Podział pracy: LLM rozumie, aplikacja rozstrzyga.** Model przekazuje w argumentach to,
 co powiedział użytkownik („Roberta”, „Żołnierska”, „Christmas Eve”). Aplikacja dopasowuje
@@ -140,7 +143,8 @@ Małe lokalne modele powtarzają też akcje (np. kilka połączeń), wykonują n
    z listą akcji wykonawczych. Plan zapisuje aplikacja; jest niezmienny w turze.
    Gdy mały model pominie JSON i od razu wywoła akcję, plan powstaje z tych wywołań
    (same wywołania nie są wtedy wykonywane — dopiero w kolejnym kroku). Zwykła
-   rozmowa („Dziękuję”) dostaje odpowiedź. Pusta odpowiedź jest błędem.
+   rozmowa („Dziękuję”) dostaje odpowiedź, a akcja, której samochód nie oferuje,
+   krótką odmowę. Pusta odpowiedź jest błędem.
 2. **Wykonanie** — `PlanGuard.execute` przepuszcza do kontrolera wyłącznie
    następną akcję planu. Odmawia, gdy: brak planu, akcja poza kolejnością,
    powtórzenie udanego efektu z tymi samymi argumentami, ponowienie nieudanej akcji
@@ -151,7 +155,8 @@ Małe lokalne modele powtarzają też akcje (np. kilka połączeń), wykonują n
    odpowiedź bez kolejnego żądania do LLM. Gdy użytkownik zapytał też o informację
    (`answer_required`), model dostaje tylko narzędzia odczytu i musi odpowiedzieć.
 
-Dodatkowe reguły: narzędzia z jednej odpowiedzi wykonują się kolejno
+Dodatkowe reguły: identyczne ponowione wywołanie dowolnego narzędzia w tej samej
+turze od razu kończy turę (zamiast pętli do limitu kroków); narzędzia z jednej odpowiedzi wykonują się kolejno
 (`max_concurrency=1`); limit kroków grafu to 24; po nieudanej turze pamięć rozmowy
 jest czyszczona, żeby niedokończone wywołania nie wpływały na następne polecenie.
 
@@ -168,7 +173,8 @@ generacji) i każde narzędzie (argumenty, wynik przekazany modelowi). Przy zamk
 oraz `session_*.json`. W trybie `--experiment` raport cząstkowy jest zapisywany co 5 s,
 żeby próba przerwana timeoutem zostawiła dane (`ended_at: null`).
 
-Metryki (N / średnia / min / max): `ASR total`, czas mowy, koniec mowy → transkrypcja,
+Metryki (N / średnia / min / max): `ASR total`, czas mowy, koniec mowy → transkrypcja
+(rozbite na wykrycie końca mowy i dekodowanie),
 czas agenta na turę, `TTS total`, synteza, odtwarzanie, cała tura. Brak etapu to brak
 pomiaru, nie zero. Granice mowy są estymacją ASR (Vosk: czasy słów, Whisper: VAD).
 Status tury `zakończona` nie oznacza sukcesu zadania — ocenia go runner.

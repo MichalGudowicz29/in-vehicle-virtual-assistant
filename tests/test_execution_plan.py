@@ -360,14 +360,32 @@ def test_identical_retry_of_failed_action_stops_turn_without_controller_call(exe
     calls = []
     original = tools.perform
     monkeypatch.setattr(tools, 'perform', lambda car, action, payload: calls.append(action) or original(car, action, payload))
-    with pytest.raises(IncompleteExecutionError, match='repeated_failure'):
+    with pytest.raises(IncompleteExecutionError, match='powtórzył'):
         qt_call(lambda: assistant.handle_text('Ustaw nawigację na Żołnierską', report=report,
                                             turn_id=report.begin_turn()))
-    assert calls == ['set_destination']          # second identical attempt never reached the car
-    assert model.requests == 3                    # no further LLM request after the refusal
-    blocked = [json.loads(e['output']) for e in report.snapshot()['events']
-               if e['type'] == 'tool_end' and e['name'] == 'navigate_to' and 'blocked' in e['output']]
-    assert blocked[0]['reason'] == 'repeated_failure'
+    assert calls == ['set_destination']          # the repeated call never reached the car
+    assert model.requests == 3                    # stopped as soon as the repeat appeared
+
+
+def test_repeated_identical_lookup_or_plan_loop_stops_quickly(execution, qt_call):
+    from assistant import IncompleteExecutionError
+    assistant, car, model, report = execution(
+        AIMessage(content='{"actions":[],"answer_required":true}'),
+        tool_response(('get_track_list', {})),
+        tool_response(('get_track_list', {})),
+    )
+    with pytest.raises(IncompleteExecutionError, match='powtórzył'):
+        qt_call(lambda: assistant.handle_text('Włącz coś', report=report, turn_id=report.begin_turn()))
+    assert model.requests == 3
+
+
+def test_unsupported_action_in_plan_becomes_short_answer(execution, qt_call):
+    assistant, car, model, report = execution(
+        tool_response(('set_action_plan', {'actions': ['open_window']})),
+        AIMessage(content='Nie mogę otworzyć okna.'),
+    )
+    assert qt_call(lambda: assistant.handle_text('Otwórz okno', report=report,
+                                                turn_id=report.begin_turn())) == 'Nie mogę otworzyć okna.'
 
 
 def test_failed_action_may_be_retried_with_corrected_arguments(execution, qt_call):

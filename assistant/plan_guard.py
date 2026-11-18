@@ -13,8 +13,8 @@ from typing import Callable, Literal
 from pydantic import BaseModel
 
 
-ActionName = Literal['call_contact', 'navigate_to', 'select_track', 'add_stop',
-                     'pause_music', 'resume_music', 'next_track', 'previous_track']
+ActionName = Literal['call_contact', 'navigate_to', 'select_track', 'add_stop', 'remove_stop',
+                     'clear_route', 'pause_music', 'resume_music', 'next_track', 'previous_track']
 
 # Effects that must not be repeated within one turn (e.g. a second phone call).
 ONCE_PER_TURN = frozenset({'call_contact', 'navigate_to', 'select_track', 'add_stop'})
@@ -42,6 +42,7 @@ class PlanGuard:
         self.completed: dict[tuple, dict] = {}
         self.failed: set[tuple] = set()          # effects that already failed with these arguments
         self.response_tools: set[str] = set()   # tools requested in the latest model response
+        self.seen_calls: set[tuple] = set()      # every (tool, arguments) the model asked for this turn
         self.blocked_reason: str | None = None
 
     @property

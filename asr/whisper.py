@@ -119,6 +119,8 @@ def _recognize(frames, decoder, stop_event, on_event, is_file):
     timing_valid = True
 
     def decode():
+        if on_event is not None:
+            on_event('decode_start')   # splits "end of speech -> text" into endpointing and decoding
         segments = decoder.transcribe(np.concatenate(buffer).astype(np.float32))
         text = ''.join(segment.text for segment in segments).strip()
         ready = perf_counter()

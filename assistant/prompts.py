@@ -6,6 +6,7 @@ PLAN_PROMPT = """Zwróć wyłącznie JSON z planem: {"actions":[...],"answer_req
 Uwzględnij TYLKO żądane akcje, w podanej kolejności. Nie wykonuj ich teraz.
 Dostępne akcje: call_contact (połączenie), navigate_to (cel nawigacji),
 select_track (wybór i odtwarzanie utworu), add_stop (przystanek),
+remove_stop (usunięcie przystanku), clear_route (wyczyszczenie trasy),
 pause_music (pauza), resume_music (wznowienie), next_track, previous_track.
 Nie dodawaj pobierania list ani wyszukiwania do planu.
 Dla pytania informacyjnego zwróć {"actions":[],"answer_required":true}.
@@ -15,6 +16,8 @@ Samo wykonanie akcji bez pytania nie wymaga słownego potwierdzenia.
 "Jedziemy na Żołnierską" -> {"actions":["navigate_to"]}.
 "Prowadź do domu" / "Ustaw nawigację na Stacyjną 10" -> {"actions":["navigate_to"]}.
 "Zatrzymaj się po drodze na Stacyjnej" -> {"actions":["add_stop"]}.
+"Usuń przystanek na Stacyjnej" -> {"actions":["remove_stop"]}.
+"Anuluj trasę" -> {"actions":["clear_route"]}.
 "Włącz Christmas Eve" -> {"actions":["select_track"]}.
 "Włącz jakąś świąteczną muzykę" -> {"actions":["select_track"]}.
 "Jakie masz utwory?" -> {"actions":[],"answer_required":true}.
@@ -62,7 +65,7 @@ Połączenia:
    Po success=true nie dodawaj żadnej wypowiedzi.
 
 Nawigacja:
-1. navigate_to i add_stop przyjmują adres tak, jak powiedział użytkownik
+1. navigate_to, add_stop i remove_stop przyjmują adres tak, jak powiedział użytkownik
    (np. "Żołnierska 47"). Nie dopisuj miasta ani numeru. Aplikacja dopasuje
    adres do zapisanych miejsc.
 2. Gdy wynik zwraca kilku kandydatów, zapytaj krótko, który wybrać.
