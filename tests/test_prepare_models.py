@@ -1,6 +1,7 @@
 import subprocess
 import sys
 from types import SimpleNamespace
+from zipfile import ZipFile
 
 import pytest
 
@@ -22,6 +23,13 @@ def test_models_follow_runner_and_are_pulled_once(monkeypatch, tmp_path):
         path.write_bytes(b'lmgg' + b'model')
         return str(path)
 
+    def fetch_vosk(url, archive):
+        downloads.append(url)
+        with ZipFile(archive, 'w') as target:
+            for name in prepare_models.VOSK_FILES:
+                target.writestr(f'{prepare_models.VOSK_MODEL}/{name}', b'weights')
+
+    monkeypatch.setattr(prepare_models, 'urlretrieve', fetch_vosk)
     monkeypatch.setitem(sys.modules, 'pywhispercpp.utils', SimpleNamespace(download_model=download))
     monkeypatch.setitem(sys.modules, 'supertonic', SimpleNamespace(
         TTS=lambda **kwargs: (tts_options.append(kwargs) or SimpleNamespace(get_voice_style=lambda name: None))))
@@ -29,7 +37,8 @@ def test_models_follow_runner_and_are_pulled_once(monkeypatch, tmp_path):
     assert [call[0] for call in calls] == [
         ['ollama', 'pull', 'test:2b'], ['ollama', 'pull', 'test:4b']]
     assert all(call[1]['check'] and call[1]['env']['OLLAMA_HOST'] == '127.0.0.1:11434' for call in calls)
-    assert downloads == ['small', 'medium']
+    assert downloads == [prepare_models.VOSK_URL, 'small', 'medium']
+    assert (tmp_path / 'models' / prepare_models.VOSK_MODEL / 'am/final.mdl').read_bytes() == b'weights'
     assert tts_options == [{'auto_download': True}]
     assert (tmp_path / 'models/whisper/ggml-small.bin').read_bytes().startswith(b'lmgg')
 

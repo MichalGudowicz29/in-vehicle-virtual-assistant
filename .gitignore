@@ -59,7 +59,8 @@ audio/
 audios/
 recordings/
 outputs/
-docs/
+docs/superpowers/
+.superpowers/
 *.wav
 *.mp3
 *.m4a
@@ -74,8 +75,7 @@ temp_audio/
 # Models
 # =========================
 
-#models/
-#model/
+models/
 *.onnx
 *.pt
 *.pth

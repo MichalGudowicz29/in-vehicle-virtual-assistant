@@ -6,9 +6,17 @@ from pathlib import Path
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
+from urllib.request import urlretrieve
+from zipfile import ZipFile
 
 from asr import ASR_MODELS, WHISPER_MODELS
 from runner import ROOT, SCENARIOS, RECORDINGS, VARIANTS
+
+
+VOSK_MODEL = 'vosk-model-small-pl-0.22'
+VOSK_URL = f'https://alphacephei.com/vosk/models/{VOSK_MODEL}.zip'
+VOSK_FILES = ('am/final.mdl', 'conf/model.conf', 'conf/mfcc.conf',
+              'graph/HCLr.fst', 'graph/Gr.fst', 'ivector/final.ie')
 
 
 def _require_file(path):
@@ -21,6 +29,21 @@ def _check_whisper(path):
     with path.open('rb') as source:
         if source.read(4) != b'lmgg':
             raise ValueError(f'Niepoprawny nagłówek GGML: {path}; usuń wadliwy plik i pobierz ponownie.')
+
+
+def _download_vosk(folder):
+    target = folder / VOSK_MODEL
+    if not target.exists():
+        folder.mkdir(parents=True, exist_ok=True)
+        # Publish only a completed extraction; interrupted setup can be retried.
+        with TemporaryDirectory(dir=folder) as temporary:
+            archive = Path(temporary) / 'model.zip'
+            urlretrieve(VOSK_URL, archive)
+            with ZipFile(archive) as source:
+                source.extractall(temporary)
+            (Path(temporary) / VOSK_MODEL).replace(target)
+    for name in VOSK_FILES:
+        _require_file(target / name)
 
 
 def prepare(*, check=False):
@@ -39,9 +62,8 @@ def prepare(*, check=False):
         for number in range(1, 4):
             _require_file(ROOT / 'music' / f'{number}.mp3')
         if 'vosk' in asrs:
-            for name in ('am/final.mdl', 'conf/model.conf', 'conf/mfcc.conf',
-                         'graph/HCLr.fst', 'graph/Gr.fst', 'ivector/final.ie'):
-                _require_file(ROOT / 'models/vosk-model-small-pl-0.22' / name)
+            for name in VOSK_FILES:
+                _require_file(ROOT / 'models' / VOSK_MODEL / name)
         for asr in asrs:
             if asr in WHISPER_MODELS:
                 _check_whisper(ROOT / 'models/whisper' / f'ggml-{WHISPER_MODELS[asr]}.bin')
@@ -54,6 +76,8 @@ def prepare(*, check=False):
 
         folder = ROOT / 'models/whisper'
         folder.mkdir(parents=True, exist_ok=True)
+        if 'vosk' in asrs:
+            _download_vosk(ROOT / 'models')
         for asr in asrs:
             if asr not in WHISPER_MODELS:
                 continue
