@@ -159,7 +159,7 @@ def test_cli_rejects_missing_file_before_starting_application(tmp_path):
                             text=True, capture_output=True, timeout=20)
     assert result.returncode == 2
     assert 'Nie znaleziono pliku audio' in result.stderr
-    assert 'Starting assistant thread' not in result.stdout
+    assert 'ASR:' not in result.stdout
 
 
 def test_cli_rejects_report_directory_that_is_a_file(tmp_path):
@@ -170,7 +170,7 @@ def test_cli_rejects_report_directory_that_is_a_file(tmp_path):
     assert result.returncode == 2
     assert 'Nie można przygotować folderu raportów' in result.stderr
     assert path.read_text() == 'keep me'
-    assert 'Starting assistant thread' not in result.stdout
+    assert 'ASR:' not in result.stdout
 
 
 def test_cli_rejects_unknown_asr_before_starting_application():
@@ -178,7 +178,7 @@ def test_cli_rejects_unknown_asr_before_starting_application():
                             text=True, capture_output=True, timeout=20)
     assert result.returncode == 2
     assert 'invalid choice' in result.stderr
-    assert 'Starting assistant thread' not in result.stdout
+    assert 'ASR:' not in result.stdout
 
 
 def test_experiment_mode_requires_audio_file_before_starting_application():
@@ -186,4 +186,4 @@ def test_experiment_mode_requires_audio_file_before_starting_application():
                             text=True, capture_output=True, timeout=20)
     assert result.returncode == 2
     assert '--audio-file' in result.stderr
-    assert 'Starting assistant thread' not in result.stdout
+    assert 'ASR:' not in result.stdout

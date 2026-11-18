@@ -1,3 +1,4 @@
+from session_report import SessionReport
 import json
 import os
 from pathlib import Path

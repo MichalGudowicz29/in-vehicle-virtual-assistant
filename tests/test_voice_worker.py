@@ -1,3 +1,4 @@
+from session_report import SessionReport
 from CarSystem.car_system import CarSystem
 from voice_worker import VoiceWorker
 import pytest
@@ -134,7 +135,7 @@ def test_annotation_filter_preserves_spoken_command(monkeypatch, text, expected)
 
     monkeypatch.setattr('asr.listen', lambda *args, **kwargs: text)
     monkeypatch.setattr('voice_worker.Assistant', Agent)
-    worker = VoiceWorker(None)
+    worker = VoiceWorker(None, SessionReport())
     worker.run()
     assert received == [expected]
 
@@ -146,14 +147,14 @@ def test_voice_worker_sends_microphone_transcription_to_assistant(monkeypatch):
         def __init__(self, car):
             pass
 
-        def handle_text(self, text):
+        def handle_text(self, text, **kwargs):
             received["text"] = text
             worker.stop_event.set()
             return ""
 
     monkeypatch.setattr("voice_worker.Assistant", FakeAssistant)
     monkeypatch.setattr("asr.listen", lambda stop_event, **kwargs: "włącz muzykę")
-    worker = VoiceWorker(CarSystem())
+    worker = VoiceWorker(CarSystem(), SessionReport())
 
     worker.run()
 
@@ -167,14 +168,14 @@ def test_stop_finishes_response_before_signalling_finished(monkeypatch):
         def __init__(self, car):
             pass
 
-        def handle_text(self, text):
+        def handle_text(self, text, **kwargs):
             worker.stop()
             return "Gotowe"
 
     monkeypatch.setattr("voice_worker.Assistant", FakeAssistant)
     monkeypatch.setattr("asr.listen", lambda stop_event, **kwargs: "włącz muzykę")
-    worker = VoiceWorker(None)
-    monkeypatch.setattr(worker, "_speak_response", lambda text: actions.append(text))
+    worker = VoiceWorker(None, SessionReport())
+    monkeypatch.setattr(worker, "_speak_response", lambda text, **kwargs: actions.append(text))
     worker.finished.connect(lambda: actions.append("finished"))
 
     worker.run()
@@ -189,7 +190,7 @@ def test_finished_is_emitted_also_when_assistant_fails(monkeypatch):
         raise RuntimeError("Cannot initialize assistant")
 
     monkeypatch.setattr("voice_worker.Assistant", fail)
-    worker = VoiceWorker(None)
+    worker = VoiceWorker(None, SessionReport())
     finished = []
     worker.finished.connect(lambda: finished.append(True))
 

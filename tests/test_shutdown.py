@@ -4,10 +4,10 @@ from threading import Event
 from shutdown import ShutdownController
 
 
-def test_shutdown_requests_stop_once_and_writes_session_times(monkeypatch, tmp_path):
-    monkeypatch.chdir(tmp_path)
+def test_shutdown_requests_stop_once_and_saves_report(tmp_path):
+    from session_report import SessionReport
     stop = Event()
-    controller = ShutdownController(stop)
+    controller = ShutdownController(stop, SessionReport(), report_directory=tmp_path)
     notifications = []
     controller.closingChanged.connect(lambda: notifications.append(True))
 
@@ -19,12 +19,7 @@ def test_shutdown_requests_stop_once_and_writes_session_times(monkeypatch, tmp_p
     assert notifications == [True]
 
     controller.finish()
-    reports = list(Path("logs/sessions").glob("*.txt"))
-    assert len(reports) == 1
-    text = reports[0].read_text()
-    assert "Rozpoczęcie:" in text
-    assert "Zakończenie:" in text
-    assert "Czas sesji:" in text
+    assert len(list(tmp_path.glob("session_*.json"))) == 1
 
 
 def test_shutdown_saves_detailed_session_report(monkeypatch, tmp_path):
