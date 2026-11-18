@@ -39,7 +39,7 @@ def tool_response(*calls):
 def execution(monkeypatch):
     def create(*responses):
         model = ScriptedModel(responses=list(responses))
-        monkeypatch.setattr('assistant.ChatOllama', lambda **kwargs: model)
+        monkeypatch.setattr('assistant.agent.ChatOllama', lambda **kwargs: model)
         car = CarSystem()
         assistant = Assistant(car)
         report = SessionReport()
@@ -84,14 +84,16 @@ def test_duplicate_parallel_call_is_recorded_but_controller_runs_once(execution,
         tool_response(('set_action_plan', {'actions': ['call_contact']})),
         tool_response(('call_contact', arguments), ('call_contact', arguments)),
     )
+    import assistant.tools as tools
+
     calls = []
-    original = assistant.graph.invoke
+    original = tools.perform
 
-    def invoke(state):
-        calls.append(state)
-        return original(state)
+    def perform(car, action, payload):
+        calls.append(action)
+        return original(car, action, payload)
 
-    monkeypatch.setattr(assistant.graph, 'invoke', invoke)
+    monkeypatch.setattr(tools, 'perform', perform)
     qt_call(lambda: assistant.handle_text('Zadzwoń', report=report, turn_id=report.begin_turn()))
     assert len(calls) == 1
     ends = [event for event in report.snapshot()['events']
@@ -200,16 +202,18 @@ def test_planned_selection_then_pause_preserves_order_in_one_tool_batch(executio
         tool_response(('select_track', {'title': 'Christmas Eve'}), ('pause_music', {})),
     )
     pause_started = Event()
-    original = assistant._execute_graph_action
+    import assistant.tools as tools
 
-    def delayed_selection(intent, action, payload):
+    original = tools.perform
+
+    def delayed_selection(car, action, payload):
         if action == 'select_track':
             pause_started.wait(timeout=0.2)
         else:
             pause_started.set()
-        return original(intent, action, payload)
+        return original(car, action, payload)
 
-    monkeypatch.setattr(assistant, '_execute_graph_action', delayed_selection)
+    monkeypatch.setattr(tools, 'perform', delayed_selection)
     qt_call(lambda: assistant.handle_text('Wybierz i zapauzuj utwór', report=report,
                                         turn_id=report.begin_turn()))
     assert car.music.isPlaying is False

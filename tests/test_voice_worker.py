@@ -353,7 +353,7 @@ def test_unavailable_ollama_prints_actionable_message_and_records_failed_turn(mo
         return ChatOllama(**{**kwargs, 'client_kwargs': {
             **kwargs['client_kwargs'], 'transport': httpx.MockTransport(refused),
         }})
-    monkeypatch.setattr('assistant.ChatOllama', local_model)
+    monkeypatch.setattr('assistant.agent.ChatOllama', local_model)
     monkeypatch.setattr('asr.listen', lambda stop, **kwargs: 'Włącz muzykę')
     report = SessionReport()
     worker = VoiceWorker(CarSystem(), report=report)

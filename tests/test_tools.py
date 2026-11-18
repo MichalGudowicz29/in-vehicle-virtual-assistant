@@ -2,23 +2,18 @@ import pytest
 
 from assistant import Assistant
 from CarSystem.car_system import CarSystem
-from graph import build_graph
+from assistant.tools import perform
 
 
-def test_assistant_delegates_music_action_to_graph():
+def test_planned_resume_reaches_music_controller():
     car = CarSystem()
     assistant = Assistant.__new__(Assistant)
     assistant.car = car
-    assistant.graph = build_graph(car)
 
     tools = {tool.name: tool for tool in assistant.build_tools()}
     tools['set_action_plan'].invoke({'actions': ['resume_music']})
 
-    result = assistant._execute_graph_action(
-        "music",
-        "set_playback",
-        {"playing": True},
-    )
+    result = tools['resume_music'].invoke({})
 
     assert result == {
         "success": True,
@@ -29,11 +24,10 @@ def test_assistant_delegates_music_action_to_graph():
     assert car.music.isPlaying is True
 
 
-def test_select_track_tool_returns_graph_failure():
+def test_select_track_tool_returns_failure_for_unknown_title():
     car = CarSystem()
     assistant = Assistant.__new__(Assistant)
     assistant.car = car
-    assistant.graph = build_graph(car)
 
     tools = {tool.name: tool for tool in assistant.build_tools()}
     select_track = tools['select_track']
@@ -49,7 +43,6 @@ def test_music_selection_requires_current_library_and_starts_playback():
     car = CarSystem()
     assistant = Assistant.__new__(Assistant)
     assistant.car = car
-    assistant.graph = build_graph(car)
     tools = {tool.name: tool for tool in assistant.build_tools()}
     tools['set_action_plan'].invoke({'actions': ['select_track']})
     assert tools['select_track'].invoke({'title': 'Chill song'})['success'] is False
@@ -68,7 +61,6 @@ def test_selection_rechecks_library_after_listing():
     car = CarSystem()
     assistant = Assistant.__new__(Assistant)
     assistant.car = car
-    assistant.graph = build_graph(car)
     tools = {tool.name: tool for tool in assistant.build_tools()}
     tools['set_action_plan'].invoke({'actions': ['select_track']})
     tools['get_track_list'].invoke({})
@@ -89,7 +81,6 @@ def test_address_tools_accept_street_with_or_without_prefix_and_house_number(too
     car = CarSystem()
     assistant = Assistant.__new__(Assistant)
     assistant.car = car
-    assistant.graph = build_graph(car)
     tools = {tool.name: tool for tool in assistant.build_tools()}
     tools['set_action_plan'].invoke({'actions': [tool_name]})
     tool = tools[tool_name]
@@ -104,9 +95,18 @@ def test_address_tool_does_not_silently_replace_conflicting_house_number(street)
     car = CarSystem()
     assistant = Assistant.__new__(Assistant)
     assistant.car = car
-    assistant.graph = build_graph(car)
     tools = {tool.name: tool for tool in assistant.build_tools()}
     tools['set_action_plan'].invoke({'actions': ['navigate_to']})
     tool = tools['navigate_to']
     assert tool.invoke({'street': street, 'city': 'Szczecin', 'number': '47'})['success'] is False
     assert car.navigation.destination == ''
+
+
+def test_perform_reports_controller_outcome_for_the_model():
+    car = CarSystem()
+    assert perform(car, 'call_contact', {'name': 'Robert Lewandowski', 'number_type': 'mobile'}) == {
+        'success': True, 'action': 'call_contact', 'contact_name': 'Robert Lewandowski', 'number_type': 'mobile'}
+    assert perform(car, 'set_destination', {'address': '  '}) == {
+        'success': False, 'action': 'set_destination', 'destination': '  '}
+    with pytest.raises(ValueError):
+        perform(car, 'play_pause', {})

@@ -15,7 +15,7 @@ def test_configurable_model_is_used_by_agent_and_report(monkeypatch, tmp_path):
     def create_agent(**kwargs):
         captured.update(kwargs)
         return object()
-    monkeypatch.setattr('assistant.create_agent', create_agent)
+    monkeypatch.setattr('assistant.agent.create_agent', create_agent)
     assistant = Assistant(CarSystem())
     model = captured['model']
     assert isinstance(model, ChatOllama)
@@ -77,7 +77,7 @@ def test_chatollama_executes_tools_and_reports_server_token_counts(monkeypatch, 
         return ChatOllama(**{**kwargs, 'client_kwargs': {
             **kwargs['client_kwargs'], 'transport': httpx.MockTransport(respond),
         }})
-    monkeypatch.setattr('assistant.ChatOllama', local_model)
+    monkeypatch.setattr('assistant.agent.ChatOllama', local_model)
     assistant = Assistant(CarSystem())
     report = SessionReport()
     response = assistant.handle_text('Jakie masz utwory?', report=report, turn_id=report.begin_turn())
@@ -133,7 +133,7 @@ def test_missing_ollama_model_is_reported_without_cloud_fallback(monkeypatch):
         return ChatOllama(**{**kwargs, 'client_kwargs': {
             **kwargs['client_kwargs'], 'transport': httpx.MockTransport(not_found),
         }})
-    monkeypatch.setattr('assistant.ChatOllama', local_model)
+    monkeypatch.setattr('assistant.agent.ChatOllama', local_model)
     assistant = Assistant(CarSystem())
     report = SessionReport()
     with pytest.raises(ResponseError, match='model not found'):
@@ -171,7 +171,7 @@ def test_music_library_authorization_expires_between_real_agent_turns(monkeypatc
             **kwargs['client_kwargs'], 'transport': httpx.MockTransport(respond),
         }})
 
-    monkeypatch.setattr('assistant.ChatOllama', local_model)
+    monkeypatch.setattr('assistant.agent.ChatOllama', local_model)
     car = CarSystem()
     assistant = Assistant(car)
     report = SessionReport()
@@ -214,7 +214,7 @@ def test_music_cannot_be_selected_in_same_model_response_as_library_request(monk
             **kwargs['client_kwargs'], 'transport': httpx.MockTransport(respond),
         }})
 
-    monkeypatch.setattr('assistant.ChatOllama', local_model)
+    monkeypatch.setattr('assistant.agent.ChatOllama', local_model)
     car = CarSystem()
     assistant = Assistant(car)
     qt_call(lambda: assistant.handle_text('Włącz coś spokojnego'))

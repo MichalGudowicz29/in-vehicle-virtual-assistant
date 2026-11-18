@@ -4,7 +4,7 @@ import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, LLMResult
 
-from assistant import Assistant
+from assistant import Assistant, PlanGuard
 from session_report import SessionReport
 from session_callbacks import SessionCallbacks
 
@@ -52,6 +52,7 @@ def test_agent_logs_final_ai_text_and_does_not_return_tool_json():
             yield {'data': {'tools': {'messages': [ToolMessage(content='{"success": true}', tool_call_id='t')]}}}
             yield {'data': {'model': {'messages': [AIMessage(content='Gotowe')]}}}
     assistant = Assistant.__new__(Assistant)
+    assistant.guard = PlanGuard()
     assistant.thread_config = {}
     assistant.agent = Agent()
     assert assistant.handle_text('dalej', report=report, turn_id=turn) == 'Gotowe'
@@ -64,6 +65,7 @@ def test_agent_error_has_end_marker_and_is_propagated():
         def stream(self, *args, **kwargs):
             raise RuntimeError('offline')
     assistant = Assistant.__new__(Assistant)
+    assistant.guard = PlanGuard()
     assistant.thread_config = {}
     assistant.agent = Agent()
     report = SessionReport()
@@ -94,6 +96,7 @@ def test_real_langchain_agent_propagates_callbacks_to_model_and_parallel_tools()
         return {'success': True, 'contacts': ['Anna']}
 
     assistant = Assistant.__new__(Assistant)
+    assistant.guard = PlanGuard()
     assistant.thread_config = {}
     assistant.agent = create_agent(model=LocalModel(responses=[
         AIMessage(content='', tool_calls=[
@@ -128,6 +131,7 @@ def test_agent_preserves_callback_configuration_supported_by_langchain(callbacks
                 assert existing in handlers
             yield {'data': {'model': {'messages': [AIMessage(content='Gotowe')]}}}
     assistant = Assistant.__new__(Assistant)
+    assistant.guard = PlanGuard()
     assistant.thread_config = {'callbacks': callbacks}
     assistant.agent = Agent()
     report = SessionReport()
