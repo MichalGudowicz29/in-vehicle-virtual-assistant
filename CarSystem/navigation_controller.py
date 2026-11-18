@@ -1,7 +1,9 @@
 import re
 import unicodedata
 
-from PySide6.QtCore import Q_ARG, Q_RETURN_ARG, QMetaObject, QObject, Property, QThread, Qt, Signal, Slot
+from PySide6.QtCore import QObject, Property, Signal, Slot
+
+from .gui_thread import init_gui_thread, on_gui_thread
 
 
 def _address_tokens(address: str) -> list[str]:
@@ -12,13 +14,15 @@ def _address_tokens(address: str) -> list[str]:
 
 
 class NavigationController(QObject):
+    """Destination and stops chosen from a local place list; drawn on a schematic map."""
     destinationChanged = Signal()
     routePointsChanged = Signal()
     stopsChanged = Signal()
-    mapScreenRequested = Signal()
+    mapScreenRequested = Signal()   # QML switches to the map after a new destination
 
     def __init__(self):
         super().__init__()
+        init_gui_thread(self)
         self._destination = ""
         self._start = {
             "label": "start",
@@ -67,25 +71,12 @@ class NavigationController(QObject):
         return [stop.copy() for stop in self._stops]
 
     @Slot(str, result=bool)
+    @on_gui_thread
     def set_destination(self, address: str):
-        if QThread.currentThread() != self.thread():
-            return QMetaObject.invokeMethod(
-                self,
-                "_set_destination",
-                Qt.ConnectionType.BlockingQueuedConnection,
-                Q_RETURN_ARG(bool),
-                Q_ARG(str, address),
-            )
-
-        return self._set_destination(address)
-
-    @Slot(str, result=bool)
-    def _set_destination(self, address: str):
         place = self.get_coordinates(address)
         if place is None:
             return False
 
-        self._destination = address
         self._destination_coordinates = {
             "label": place["address"],
             "address": place["address"],
@@ -135,20 +126,8 @@ class NavigationController(QObject):
         }
 
     @Slot(str, result=bool)
+    @on_gui_thread
     def add_stop(self, address: str):
-        if QThread.currentThread() != self.thread():
-            return QMetaObject.invokeMethod(
-                self,
-                "_add_stop",
-                Qt.ConnectionType.BlockingQueuedConnection,
-                Q_RETURN_ARG(bool),
-                Q_ARG(str, address),
-            )
-
-        return self._add_stop(address)
-
-    @Slot(str, result=bool)
-    def _add_stop(self, address: str):
         place = self.get_coordinates(address)
         if place is None:
             return False
