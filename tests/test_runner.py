@@ -16,7 +16,7 @@ def phone_session(name='Robert Lewandowski', number_type='mobile', success=True)
 
 
 def test_expected_phone_action_passes_and_completed_dialog_alone_does_not():
-    from runner import evaluate_session
+    from experiments.runner import evaluate_session
     data = phone_session()
     assert evaluate_session(data)[0] is True
     data['events'] = [e for e in data['events'] if e['type'] == 'turn_end']
@@ -32,13 +32,13 @@ def test_expected_phone_action_passes_and_completed_dialog_alone_does_not():
     ('Robert Lewandowski', 'mobile', None),
 ])
 def test_wrong_contact_number_or_tool_failure_is_not_task_success(name, number_type, tool_success):
-    from runner import evaluate_session
+    from experiments.runner import evaluate_session
     assert evaluate_session(phone_session(name, number_type, tool_success))[0] is False
 
 
 @pytest.mark.parametrize('problem', ['duplicate', 'wrong_run_id', 'wrong_turn', 'unfinished', 'session_error'])
 def test_only_one_completed_and_correctly_paired_call_counts_as_success(problem):
-    from runner import evaluate_session
+    from experiments.runner import evaluate_session
     data = phone_session()
     if problem == 'duplicate':
         data['events'].append(dict(data['events'][0], run_id='call2'))
@@ -109,7 +109,7 @@ if FAILURES and run == 3:
 
 @pytest.mark.parametrize('failures', [False, True])
 def test_runner_executes_108_trials_in_variant_task_recording_order(monkeypatch, tmp_path, failures):
-    import runner
+    from experiments import runner
     project = tmp_path / 'project with spaces'
     prepare_experiment(project, failures)
     original = {name: (project / name).read_bytes() for name in ('main.py', '.env')}
@@ -174,7 +174,7 @@ def test_runner_executes_108_trials_in_variant_task_recording_order(monkeypatch,
 
 @pytest.mark.parametrize('problem', ['missing', 'extra', 'empty', 'wrong_name'])
 def test_runner_rejects_incomplete_recording_set_before_starting(monkeypatch, tmp_path, problem):
-    import runner
+    from experiments import runner
     prepare_experiment(tmp_path)
     path = tmp_path / 'assets/voice/Nawigacja/3.mp3'
     if problem == 'missing':
@@ -192,7 +192,7 @@ def test_runner_rejects_incomplete_recording_set_before_starting(monkeypatch, tm
 
 
 def test_timeout_keeps_completed_task_report_and_metrics(monkeypatch, tmp_path):
-    import runner
+    from experiments import runner
     prepare_experiment(tmp_path, tail='\nimport time; time.sleep(5)\n')
     monkeypatch.setattr(runner, 'ROOT', tmp_path)
     monkeypatch.setattr(runner, 'TIMEOUT_S', .5)
@@ -211,7 +211,7 @@ def test_timeout_keeps_completed_task_report_and_metrics(monkeypatch, tmp_path):
 
 
 def test_timeouts_continue_through_all_variants_and_tasks(monkeypatch, tmp_path):
-    import runner
+    from experiments import runner
     prepare_experiment(tmp_path)
     (tmp_path / 'main.py').write_text('import time; time.sleep(5)')
     monkeypatch.setattr(runner, 'ROOT', tmp_path)
@@ -236,7 +236,7 @@ def test_timeouts_continue_through_all_variants_and_tasks(monkeypatch, tmp_path)
 
 
 def test_timeout_retains_partial_report_metrics_without_claiming_task_success(monkeypatch, tmp_path):
-    import runner
+    from experiments import runner
     prepare_experiment(tmp_path, tail='''
 data.update(ended_at=None, turns=[dict(id=1, status='active')],
             metrics={'ASR total': dict(n=1, mean_s=1.2, min_s=1.2, max_s=1.2)})
@@ -263,11 +263,11 @@ def test_runner_preflight_is_independent_of_application_imports_and_env(tmp_path
     from pathlib import Path
     import subprocess
     import sys
-    source = Path(__file__).resolve().parents[1] / 'runner.py'
-    script = tmp_path / 'runner.py'
-    script.write_bytes(source.read_bytes())
+    import shutil
+    source = Path(__file__).resolve().parents[1] / 'experiments'
+    shutil.copytree(source, tmp_path / 'experiments', ignore=shutil.ignore_patterns('__pycache__'))
     environment = {key: value for key, value in os.environ.items() if key not in ('OLLAMA_MODEL', 'ASR_MODEL', 'PYTHONPATH')}
-    result = subprocess.run([sys.executable, '-I', str(script)], cwd=tmp_path,
+    result = subprocess.run([sys.executable, '-E', '-s', '-m', 'experiments.runner'], cwd=tmp_path,
                             env=environment, capture_output=True, text=True, timeout=5)
     assert result.returncode == 2
     assert 'wymagane dokładnie 3 nagrania MP3' in result.stderr
@@ -275,7 +275,7 @@ def test_runner_preflight_is_independent_of_application_imports_and_env(tmp_path
 
 @pytest.mark.parametrize('field, value', [('metrics', []), ('metrics', {'Cała tura': []}), ('tokens', [])])
 def test_invalid_measurements_are_rejected_before_summary(monkeypatch, tmp_path, field, value):
-    import runner
+    from experiments import runner
     tail = f"\ndata[{field!r}] = {value!r}\n(args.report_dir / f'session_{{run}}.json').write_text(json.dumps(data))\n"
     prepare_experiment(tmp_path, tail=tail)
     monkeypatch.setattr(runner, 'ROOT', tmp_path)
@@ -294,7 +294,7 @@ def test_invalid_measurements_are_rejected_before_summary(monkeypatch, tmp_path,
     ('raise SystemExit(7)', 'kodem 7'),
 ])
 def test_invalid_child_execution_is_recorded_instead_of_counted_as_success(monkeypatch, tmp_path, script, reason):
-    import runner
+    from experiments import runner
     prepare_experiment(tmp_path)
     (tmp_path / 'main.py').write_text(script)
     monkeypatch.setattr(runner, 'ROOT', tmp_path)
@@ -313,7 +313,7 @@ def test_invalid_child_execution_is_recorded_instead_of_counted_as_success(monke
      {'navigation': {'destination': 'ul. Żołnierska 47, Szczecin', 'stops': []}}),
 ])
 def test_scenario_success_requires_both_action_and_expected_final_state(task, tool, arguments, state):
-    from runner import evaluate_session
+    from experiments.runner import evaluate_session
     data = {'turns': [{'id': 1, 'status': 'completed'}], 'events': [
         dict(type='tool_start', turn_id=1, run_id='action', name=tool, arguments=arguments),
         dict(type='tool_end', turn_id=1, run_id='action', name=tool, success=True),
@@ -339,7 +339,7 @@ def music_listing():
                                       'wrong_title', 'duplicate', 'extra_toggle', 'extra_pause',
                                       'extra_resume', 'same_response'])
 def test_music_evaluation_requires_list_then_one_matching_selection(problem):
-    from runner import evaluate_session
+    from experiments.runner import evaluate_session
     listing = music_listing()
     action = [dict(type='tool_start', turn_id=1, run_id='play', name='select_track',
                    arguments={'title': 'Christmas Eve'}),
@@ -378,14 +378,14 @@ def test_music_evaluation_requires_list_then_one_matching_selection(problem):
 
 
 def test_phone_success_requires_call_to_still_be_active():
-    from runner import evaluate_session
+    from experiments.runner import evaluate_session
     data = phone_session()
     data['events'][-1]['state']['contacts']['is_calling'] = False
     assert evaluate_session(data)[0] is False
 
 
 def test_runner_preflights_all_recordings_before_starting(monkeypatch, tmp_path):
-    import runner
+    from experiments import runner
     (tmp_path / 'assets/voice/Muzyka').mkdir(parents=True)
     (tmp_path / 'assets/voice/Muzyka/1.mp3').touch()
     monkeypatch.setattr(runner, 'ROOT', tmp_path)
@@ -394,7 +394,7 @@ def test_runner_preflights_all_recordings_before_starting(monkeypatch, tmp_path)
 
 
 def test_summary_aggregates_all_runs_with_weighted_timings_and_ranks_successes(tmp_path):
-    from runner import _save_summary
+    from experiments.runner import _save_summary
     runs = []
     for number, success, duration, turn, requests, llm_mean, tokens, known, missing in [
         (1, True, 12, 10, 1, 2, 10, 1, 0),
@@ -433,7 +433,7 @@ def test_summary_aggregates_all_runs_with_weighted_timings_and_ranks_successes(t
 
 
 def test_empty_summary_has_no_fake_zero_measurements_or_ranking(tmp_path):
-    from runner import _save_summary
+    from experiments.runner import _save_summary
     summary = dict(task='Zadanie1', repetitions=3, runs=[])
     _save_summary(tmp_path, summary)
     data = json.loads((tmp_path / 'summary.json').read_text())
@@ -445,7 +445,7 @@ def test_empty_summary_has_no_fake_zero_measurements_or_ranking(tmp_path):
 
 
 def test_failed_runs_count_toward_success_rate_but_not_ranking(tmp_path):
-    from runner import _save_summary
+    from experiments.runner import _save_summary
     summary = dict(task='Zadanie1', repetitions=3, runs=[
         dict(run=1, success=False, reason='timeout', duration_s=None),
         dict(run=2, success=False, reason='brak call_contact', duration_s=5),
@@ -459,7 +459,7 @@ def test_failed_runs_count_toward_success_rate_but_not_ranking(tmp_path):
 
 
 def test_summary_lists_ten_run_statistics_before_averages_and_success_rate(tmp_path):
-    from runner import _save_summary
+    from experiments.runner import _save_summary
     runs = [dict(run=i, success=i % 2 == 0, reason='ocena zadania', duration_s=i + 1,
                  metrics={'Cała tura': dict(n=1, mean_s=i, min_s=i, max_s=i)},
                  tokens=dict(input_tokens=i * 10)) for i in range(1, 11)]

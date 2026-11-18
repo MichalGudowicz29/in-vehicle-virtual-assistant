@@ -1,4 +1,7 @@
-"""Prepare the runner's models; --check validates inputs before a series."""
+"""Prepare the runner's models; --check validates inputs before a series.
+
+    uv run python -m experiments.prepare_models [--check]
+"""
 
 import argparse
 import os
@@ -10,7 +13,7 @@ from urllib.request import urlretrieve
 from zipfile import ZipFile
 
 from asr import ASR_MODELS, WHISPER_MODELS
-from runner import ROOT, SCENARIOS, RECORDINGS, VARIANTS
+from experiments.runner import ROOT, SCENARIOS, RECORDINGS, VARIANTS
 
 
 VOSK_MODEL = 'vosk-model-small-pl-0.22'

@@ -7,7 +7,7 @@ import pytest
 
 
 def test_models_follow_runner_and_are_pulled_once(monkeypatch, tmp_path):
-    import prepare_models
+    from experiments import prepare_models
 
     monkeypatch.setattr(prepare_models, 'ROOT', tmp_path)
     monkeypatch.setattr(prepare_models, 'VARIANTS', (
@@ -44,7 +44,7 @@ def test_models_follow_runner_and_are_pulled_once(monkeypatch, tmp_path):
 
 
 def test_check_refuses_missing_inputs_before_contacting_ollama(monkeypatch, tmp_path):
-    import prepare_models
+    from experiments import prepare_models
 
     monkeypatch.setattr(prepare_models, 'ROOT', tmp_path)
     monkeypatch.setattr(subprocess, 'run', lambda *args, **kwargs: pytest.fail('No network before asset validation'))
@@ -53,7 +53,7 @@ def test_check_refuses_missing_inputs_before_contacting_ollama(monkeypatch, tmp_
 
 
 def test_check_uses_cached_models_without_downloads(monkeypatch, tmp_path):
-    import prepare_models
+    from experiments import prepare_models
 
     monkeypatch.setattr(prepare_models, 'ROOT', tmp_path)
     monkeypatch.setattr(prepare_models, 'VARIANTS', (('A', 'whisper-small', 'test:2b'),))
@@ -81,7 +81,7 @@ def test_check_uses_cached_models_without_downloads(monkeypatch, tmp_path):
 
 
 def test_failed_download_does_not_leave_model_in_final_location(monkeypatch, tmp_path):
-    import prepare_models
+    from experiments import prepare_models
 
     monkeypatch.setattr(prepare_models, 'ROOT', tmp_path)
     monkeypatch.setattr(prepare_models, 'VARIANTS', (('A', 'whisper-small', 'test:2b'),))
