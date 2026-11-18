@@ -88,6 +88,6 @@ def _json(value):
 
 
 def _resolved_target(call, end):
-    """What the application actually executed: resolved values from the tool result
-    (version 2 tools resolve spoken names), falling back to the model's arguments."""
+    """What the application actually executed: resolved values from the tool result,
+    completed with the model's arguments."""
     return {**_json(call.get('arguments')), **_json(end.get('output'))}

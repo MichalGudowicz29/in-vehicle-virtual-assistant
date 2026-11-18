@@ -19,9 +19,10 @@ def test_selected_asr_is_reported_in_txt_and_json(tmp_path):
     assert 'estymacja Vosk' not in text_path.read_text()
 
 
-def test_configuration_selects_asr_for_report(monkeypatch):
-    monkeypatch.setattr('config.ASR_MODEL', 'whisper-medium')
-    assert SessionReport().snapshot()['models']['asr'] == 'Whisper medium (whisper.cpp)'
+def test_default_asr_is_reported_and_matches_runner_label():
+    from experiments import runner
+    assert SessionReport().snapshot()['models']['asr'] == asr.model_label(asr.DEFAULT_ASR)
+    assert (runner.ASR, runner.ASR_LABEL) == (asr.DEFAULT_ASR, asr.model_label(asr.DEFAULT_ASR))
 
 
 def test_worker_rejects_mislabeled_report():

@@ -4,9 +4,6 @@ Division of work: the LLM understands the command and passes on *what the user s
 ("Roberta", "Żołnierska 47", "Christmas Eve"); the application resolves it against its
 own data (contacts, places, tracks). One match is executed; several matches or none are
 returned as candidates so the LLM can ask a short question instead of guessing.
-
-Version 2 (2026-11-18). The 16.11 series used version 1 (tag pre-refactor), where the
-model had to reproduce exact names, titles and street/city/number fields.
 """
 
 from langchain.tools import tool  # type: ignore

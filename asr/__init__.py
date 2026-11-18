@@ -10,14 +10,11 @@ WHISPER_MODELS = {
     'whisper-large-v3-turbo-q5_0': 'large-v3-turbo-q5_0',
 }
 ASR_MODELS = ('vosk', *WHISPER_MODELS)
-# Manual use (microphone). The measurement series keeps its own matrix in experiments/runner.py.
-MANUAL_ASR = 'whisper-large-v3-turbo-q5_0'
+DEFAULT_ASR = 'whisper-large-v3-turbo-q5_0'
 
 
 def resolve_model(asr: str | None = None) -> str:
-    import config
-
-    name = config.ASR_MODEL if asr is None else asr
+    name = DEFAULT_ASR if asr is None else asr
     if name not in ASR_MODELS:
         raise ValueError(f"Nieznany ASR: {name!r}. Dostępne: {', '.join(ASR_MODELS)}")
     return name
@@ -25,6 +22,16 @@ def resolve_model(asr: str | None = None) -> str:
 
 def model_label(asr: str) -> str:
     return 'Vosk small-pl-0.22' if asr == 'vosk' else f'Whisper {WHISPER_MODELS[asr]} (whisper.cpp)'
+
+
+def preload(asr: str) -> None:
+    """Load the recogniser before the first command, so the first press is not slower."""
+    if asr == 'vosk':
+        from .vosk import _get_model
+        _get_model()
+    else:
+        from .whisper import _get_model
+        _get_model(WHISPER_MODELS[asr])
 
 
 def listen(stop_event: Event, on_event=None, *, asr: str | None = None) -> str | None:

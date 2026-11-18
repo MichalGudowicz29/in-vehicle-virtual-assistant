@@ -12,8 +12,8 @@ from tempfile import TemporaryDirectory
 from urllib.request import urlretrieve
 from zipfile import ZipFile
 
-from asr import ASR_MODELS, MANUAL_ASR, WHISPER_MODELS
-from experiments.runner import ROOT, SCENARIOS, RECORDINGS, VARIANTS
+from asr import ASR_MODELS, WHISPER_MODELS
+from experiments.runner import ASR, LLM, ROOT, SCENARIOS, RECORDINGS
 
 
 VOSK_MODEL = 'vosk-model-small-pl-0.22'
@@ -50,12 +50,10 @@ def _download_vosk(folder):
 
 
 def prepare(*, check=False):
-    # Runner variants plus the default ASR of manual (microphone) use.
-    asrs = list(dict.fromkeys([*(asr for _, asr, _ in VARIANTS), MANUAL_ASR]))
-    llms = list(dict.fromkeys(llm for _, _, llm in VARIANTS))
+    asrs, llms = [ASR], [LLM]
     for asr in asrs:
         if asr not in ASR_MODELS:
-            raise ValueError(f'Nieznany ASR w runner.VARIANTS: {asr}')
+            raise ValueError(f'Nieznany ASR w runner.ASR: {asr}')
     for llm in llms:
         if not llm.strip() or 'cloud' in llm.lower():
             raise ValueError(f'Wymagany lokalny model Ollama: {llm!r}')

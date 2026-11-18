@@ -13,10 +13,10 @@ import pytest
 @pytest.mark.parametrize(('experiment', 'override', 'expected', 'reasoning', 'expected_reasoning'), [
     (False, None, 'whisper-large-v3-turbo-q5_0', '', False),
     (False, 'vosk', 'vosk', '', False),
-    (True, None, 'vosk', '', None),
+    (True, None, 'whisper-large-v3-turbo-q5_0', '', False),   # experiment: same configuration
     (False, None, 'whisper-large-v3-turbo-q5_0', 'true', True),
 ])
-def test_cli_selects_manual_whisper_default_and_preserves_experiment_config(
+def test_cli_uses_one_default_configuration_in_every_mode(
         tmp_path, music_file, experiment, override, expected, reasoning, expected_reasoning):
     path = tmp_path / 'speech.wav'
     path.touch()
@@ -50,7 +50,7 @@ runpy.run_path('main.py', run_name='__main__')
     result = subprocess.run(
         [sys.executable, '-c', script, str(music_file), str(output), str(path),
          str(experiment), str(override), expected, str(expected_reasoning)],
-        env={**os.environ, 'ASR_MODEL': 'vosk', 'QT_QPA_PLATFORM': 'offscreen',
+        env={**os.environ, 'QT_QPA_PLATFORM': 'offscreen',
              'SDL_AUDIODRIVER': 'dummy', 'OLLAMA_REASONING': reasoning}, text=True, capture_output=True, timeout=30)
     assert result.returncode == 0, result.stdout + result.stderr
     assert f'ASR: {expected}' in result.stdout

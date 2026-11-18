@@ -485,3 +485,21 @@ def test_listen_timeout_closes_window_only_without_speech(monkeypatch):
     monkeypatch.setattr('asr.listen', listen_speaking)
     assert worker._listen(lambda *a, **k: None) == 'tekst'
     assert seen['speaking'] is False
+
+
+def test_models_are_preloaded_before_the_first_command(monkeypatch):
+    import config
+    calls = []
+
+    class FakeAssistant:
+        def __init__(self, car):
+            pass
+
+    monkeypatch.setattr(config, 'PRELOAD', True)
+    monkeypatch.setattr('voice_worker.Assistant', FakeAssistant)
+    monkeypatch.setattr('asr.preload', lambda asr: calls.append(('asr', asr)))
+    monkeypatch.setattr('assistant.agent.warm_up_llm', lambda: calls.append(('llm',)))
+    monkeypatch.setattr('asr.listen', lambda *args, **kwargs: None)
+    worker = VoiceWorker(None, SessionReport())
+    worker.run()
+    assert ('asr', worker.asr) in calls

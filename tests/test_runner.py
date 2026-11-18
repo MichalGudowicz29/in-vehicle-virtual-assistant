@@ -59,7 +59,7 @@ def prepare_experiment(project, failures=False, tail=''):
         folder.mkdir(parents=True)
         for recording in range(1, 4):
             (folder / f'{recording}.mp3').write_bytes(b'test input')
-    (project / '.env').write_text('ASR_MODEL=unchanged\nOLLAMA_MODEL=unchanged\n')
+    (project / '.env').write_text('OLLAMA_MODEL=unchanged\n')
     script = r'''
 import argparse, json, os
 from pathlib import Path
@@ -69,7 +69,7 @@ parser.add_argument('--report-dir', type=Path)
 parser.add_argument('--asr')
 parser.add_argument('--experiment', action='store_true', required=True)
 args = parser.parse_args()
-assert args.asr == os.environ['ASR_MODEL']
+assert args.asr == 'whisper-large-v3-turbo-q5_0'
 assert os.environ.get('PYTHONUNBUFFERED') == '1'
 run = 1 if args.report_dir.name == 'warmup' else int(args.report_dir.name[-2:])
 task = {'Muzyka': 1, 'Telefon': 2, 'Nawigacja': 3}[args.audio_file.parent.name]
@@ -86,14 +86,8 @@ events = []
 if not FAILURES or run != 2:
     events = [dict(type='tool_start', turn_id=1, run_id='call', name=tool, arguments=arguments),
               dict(type='tool_end', turn_id=1, run_id='call', name=tool, success=True)]
-    if task == 1:
-        events[:0] = [
-            dict(type='tool_start', turn_id=1, run_id='list', name='get_track_list', arguments={}),
-            dict(type='tool_end', turn_id=1, run_id='list', name='get_track_list', success=True,
-                 output=json.dumps({'success': True, 'tracks': [{'id': 0, 'title': 'Christmas Eve', 'author': 'Toto'}]})),
-        ]
 events.append(dict(type='app_state', turn_id=None, state=state))
-label = {'vosk': 'Vosk small-pl-0.22', 'whisper-small': 'Whisper small (whisper.cpp)'}[args.asr]
+label = 'Whisper large-v3-turbo-q5_0 (whisper.cpp)'
 data = dict(session_id=f'session_{run}', ended_at='2026-11-05T10:00:00+01:00', models=dict(asr=label, llm=os.environ['OLLAMA_MODEL'], tts='Supertonic'),
             input_source=dict(type='audiofile', path=str(args.audio_file)),
             turns=[dict(id=1, status='completed')], events=events, duration_s=1.5,
@@ -108,7 +102,7 @@ if FAILURES and run == 3:
 
 
 @pytest.mark.parametrize('failures', [False, True])
-def test_runner_executes_108_trials_in_variant_task_recording_order(monkeypatch, tmp_path, failures):
+def test_runner_executes_27_trials_in_task_recording_order(monkeypatch, tmp_path, failures):
     from experiments import runner
     project = tmp_path / 'project with spaces'
     prepare_experiment(project, failures)
@@ -116,55 +110,45 @@ def test_runner_executes_108_trials_in_variant_task_recording_order(monkeypatch,
     monkeypatch.setattr(runner, 'ROOT', project)
     assert runner.main() == (1 if failures else 0)
     order = [json.loads(line) for line in (project / 'order.jsonl').read_text().splitlines()]
-    expected = []
-    for asr, llm in [('vosk', 'qwen3.5:2b'), ('whisper-small', 'qwen3.5:2b'),
-                     ('vosk', 'qwen3.5:4b'), ('whisper-small', 'qwen3.5:4b')]:
-        expected.append(dict(asr=asr, llm=llm, task=1, audio='1.mp3', repetition=1, warmup=True))
-        for task, title in [(1, 'Muzyka'), (2, 'Telefon'), (3, 'Nawigacja')]:
-            for recording in range(1, 4):
-                for repetition in range(1, 4):
-                    expected.append(dict(asr=asr, llm=llm, task=task, audio=f'{recording}.mp3',
-                                         repetition=repetition, warmup=False))
+    configuration = dict(asr='whisper-large-v3-turbo-q5_0', llm='qwen3.5:2b')
+    expected = [dict(configuration, task=1, audio='1.mp3', repetition=1, warmup=True)]
+    for task in range(1, 4):
+        for recording in range(1, 4):
+            for repetition in range(1, 4):
+                expected.append(dict(configuration, task=task, audio=f'{recording}.mp3',
+                                     repetition=repetition, warmup=False))
     assert order == expected
     series = list((project / 'logs/eksperymenty').iterdir())
     assert len(series) == 1
-    variants = sorted(p for p in series[0].iterdir() if p.is_dir())
-    assert [p.name for p in variants] == ['A_vosk_qwen3.5_2b', 'B_whisper-small_qwen3.5_2b',
-                                        'C_vosk_qwen3.5_4b', 'D_whisper-small_qwen3.5_4b']
     manifest = json.loads((series[0] / 'config.json').read_text())
-    assert manifest['planned_runs'] == 108
+    assert manifest['planned_runs'] == 27
     music = manifest['recordings']['1']
     assert [entry['recording'] for entry in music] == [1, 2, 3]
     assert [entry['recording_type'] for entry in music] == [
         'polecenie wprost', 'naturalna parafraza', 'polecenie nie wprost']
     assert music[0]['prompt_text'] == 'Włącz piosenkę Christmas Eve'
-    assert music[2]['prompt_text'] == 'Włącz jakąś muzykę, chcę poczuć klimat świąt'
-    for variant in variants:
-        assert (variant / 'warmup/summary.json').is_file()
-        for task in range(1, 4):
-            experiment = next(variant.glob(f'zad{task}_*'))
-            assert len(list(experiment.glob('recording_*/run_*/session_*.json'))) == 9
-            summary = json.loads((experiment / 'summary.json').read_text())
-            assert summary['variant'] == variant.name[0]
-            assert summary['repetitions'] == 3 and summary['planned_runs'] == 9
-            assert [run['success'] for run in summary['runs']] == ([True, False, False] * 3 if failures else [True] * 9)
-            assert summary['success_count'] == (3 if failures else 9)
-            assert summary['statistics']['metrics']['Cała tura']['n'] == 9
-            assert summary['statistics']['metrics']['Cała tura']['mean_s'] == 2
-            assert summary['best_run']['run'] == 1
-            assert summary['worst_run']['run'] == (1 if failures else 3)
-            assert len({run['audio_file'] for run in summary['runs']}) == 3
-            assert [run['recording_type'] for run in summary['runs']] == (
-                ['polecenie wprost'] * 3 + ['naturalna parafraza'] * 3 + ['polecenie nie wprost'] * 3)
-            assert all(run['prompt_text'] for run in summary['runs'])
-            assert summary['runs'][0]['prompt_text'] in (experiment / 'summary.txt').read_text()
-            assert 'Wariant:' in (experiment / 'config.txt').read_text()
-            assert (experiment / 'recording_01/run_01/console.log').read_text().strip() == 'Child process finished'
-            if failures:
-                assert summary['runs'][2]['task_success'] is True
-                assert 'kodem 7' in summary['runs'][2]['reason']
-                assert summary['task_success_count'] == 6
-            assert ('3/9' if failures else '9/9') in (experiment / 'summary.txt').read_text()
+    assert (series[0] / 'warmup/summary.json').is_file()
+    for task in range(1, 4):
+        experiment = next(series[0].glob(f'zad{task}_*'))
+        assert len(list(experiment.glob('recording_*/run_*/session_*.json'))) == 9
+        summary = json.loads((experiment / 'summary.json').read_text())
+        assert summary['repetitions'] == 3 and summary['planned_runs'] == 9
+        assert [run['success'] for run in summary['runs']] == ([True, False, False] * 3 if failures else [True] * 9)
+        assert summary['success_count'] == (3 if failures else 9)
+        assert summary['statistics']['metrics']['Cała tura']['n'] == 9
+        assert summary['statistics']['metrics']['Cała tura']['mean_s'] == 2
+        assert summary['best_run']['run'] == 1
+        assert summary['worst_run']['run'] == (1 if failures else 3)
+        assert [run['recording_type'] for run in summary['runs']] == (
+            ['polecenie wprost'] * 3 + ['naturalna parafraza'] * 3 + ['polecenie nie wprost'] * 3)
+        assert summary['runs'][0]['prompt_text'] in (experiment / 'summary.txt').read_text()
+        assert 'qwen3.5:2b' in (experiment / 'config.txt').read_text()
+        assert (experiment / 'recording_01/run_01/console.log').read_text().strip() == 'Child process finished'
+        if failures:
+            assert summary['runs'][2]['task_success'] is True
+            assert 'kodem 7' in summary['runs'][2]['reason']
+            assert summary['task_success_count'] == 6
+        assert ('3/9' if failures else '9/9') in (experiment / 'summary.txt').read_text()
     assert all((project / name).read_bytes() == content for name, content in original.items())
     # A new invocation must preserve the previous series and its reports.
     if not failures:
@@ -198,11 +182,10 @@ def test_timeout_keeps_completed_task_report_and_metrics(monkeypatch, tmp_path):
     monkeypatch.setattr(runner, 'TIMEOUT_S', .5)
     directory = tmp_path / 'trial'
     directory.mkdir()
-    models = dict(asr='Vosk small-pl-0.22', llm='qwen3.5:2b', tts='Supertonic')
     # Name matches the ordinary per-recording trial layout.
     trial = directory / 'run_01'
     trial.mkdir()
-    result = runner._run_trial(trial, 2, 'vosk', models, tmp_path / 'assets/voice/Telefon/1.mp3')
+    result = runner._run_trial(trial, 2, tmp_path / 'assets/voice/Telefon/1.mp3')
     assert result['success'] is False and result['timed_out'] is True
     assert result['task_success'] is True
     assert result['report'] == 'session_1.json'
@@ -210,7 +193,7 @@ def test_timeout_keeps_completed_task_report_and_metrics(monkeypatch, tmp_path):
     assert 'limit' in result['reason']
 
 
-def test_timeouts_continue_through_all_variants_and_tasks(monkeypatch, tmp_path):
+def test_timeouts_continue_through_all_tasks(monkeypatch, tmp_path):
     from experiments import runner
     prepare_experiment(tmp_path)
     (tmp_path / 'main.py').write_text('import time; time.sleep(5)')
@@ -218,8 +201,8 @@ def test_timeouts_continue_through_all_variants_and_tasks(monkeypatch, tmp_path)
     monkeypatch.setattr(runner, 'TIMEOUT_S', .05)
     monkeypatch.setattr(runner, 'REPETITIONS', 1)
     assert runner.main() == 1
-    summaries = list((tmp_path / 'logs/eksperymenty').glob('*/[ABCD]_*/zad*/summary.json'))
-    assert len(summaries) == 12
+    summaries = list((tmp_path / 'logs/eksperymenty').glob('*/zad*/summary.json'))
+    assert len(summaries) == 3
     for path in summaries:
         data = json.loads(path.read_text())
         assert data['success_count'] == 0 and data['timeout_count'] == 3
@@ -247,9 +230,7 @@ import time; time.sleep(5)
     monkeypatch.setattr(runner, 'TIMEOUT_S', .5)
     trial = tmp_path / 'run_01'
     trial.mkdir()
-    result = runner._run_trial(trial, 1, 'vosk',
-                               dict(asr='Vosk small-pl-0.22', llm='qwen3.5:2b', tts='Supertonic'),
-                               tmp_path / 'assets/voice/Muzyka/1.mp3')
+    result = runner._run_trial(trial, 1, tmp_path / 'assets/voice/Muzyka/1.mp3')
     assert result['timed_out'] is True
     assert result['report_complete'] is False
     assert result['success'] is False and result['task_success'] is False
@@ -266,7 +247,7 @@ def test_runner_preflight_is_independent_of_application_imports_and_env(tmp_path
     import shutil
     source = Path(__file__).resolve().parents[1] / 'experiments'
     shutil.copytree(source, tmp_path / 'experiments', ignore=shutil.ignore_patterns('__pycache__'))
-    environment = {key: value for key, value in os.environ.items() if key not in ('OLLAMA_MODEL', 'ASR_MODEL', 'PYTHONPATH')}
+    environment = {key: value for key, value in os.environ.items() if key not in ('OLLAMA_MODEL', 'PYTHONPATH')}
     result = subprocess.run([sys.executable, '-E', '-s', '-m', 'experiments.runner'], cwd=tmp_path,
                             env=environment, capture_output=True, text=True, timeout=5)
     assert result.returncode == 2
@@ -281,9 +262,7 @@ def test_invalid_measurements_are_rejected_before_summary(monkeypatch, tmp_path,
     monkeypatch.setattr(runner, 'ROOT', tmp_path)
     trial = tmp_path / 'run_01'
     trial.mkdir()
-    result = runner._run_trial(trial, 1, 'vosk',
-                               dict(asr='Vosk small-pl-0.22', llm='qwen3.5:2b', tts='Supertonic'),
-                               tmp_path / 'assets/voice/Muzyka/1.mp3')
+    result = runner._run_trial(trial, 1, tmp_path / 'assets/voice/Muzyka/1.mp3')
     assert result['success'] is False
     assert 'format pomiarów' in result['reason']
 
@@ -300,9 +279,7 @@ def test_invalid_child_execution_is_recorded_instead_of_counted_as_success(monke
     monkeypatch.setattr(runner, 'ROOT', tmp_path)
     directory = tmp_path / 'run_01'
     directory.mkdir()
-    result = runner._run_trial(directory, 1, 'vosk',
-                               dict(asr='Vosk small-pl-0.22', llm='qwen3.5:2b', tts='Supertonic'),
-                               tmp_path / 'assets/voice/Muzyka/1.mp3')
+    result = runner._run_trial(directory, 1, tmp_path / 'assets/voice/Muzyka/1.mp3')
     assert result['success'] is False
     assert reason in result['reason']
 

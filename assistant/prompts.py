@@ -1,9 +1,5 @@
-"""Prompts sent to the LLM.
-
-Version 2 (2026-11-18): entity resolution moved to the application (contacts, addresses,
-tracks are matched from what the user said), so the domain rules are shorter than in the
-version measured in the 16.11 series (tag pre-refactor).
-"""
+"""Prompts sent to the LLM. Entities (contacts, addresses, tracks) are resolved by the
+application, so the domain rules only tell the model what to pass on and when to ask."""
 
 # Phase 1: the model only declares which effects the command requests (JSON, no tools).
 PLAN_PROMPT = """Zwróć wyłącznie JSON z planem: {"actions":[...],"answer_required":false}

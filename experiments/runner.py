@@ -1,5 +1,5 @@
-"""Measurement series: run main.py --experiment as a subprocess for 4 ASR×LLM variants,
-3 tasks, 3 recordings, 3 repetitions = 108 trials (+4 warm-ups).
+"""Measurement series of the final configuration: run main.py --experiment as a subprocess
+for 3 tasks × 3 recordings × 3 repetitions = 27 trials (+1 warm-up).
 
 Uses only the standard library and never imports the application, so a crashing or
 hanging trial cannot affect the runner. Run from the repo root:
@@ -23,13 +23,11 @@ REPETITIONS = 3
 RECORDINGS = 3
 RECORDING_TYPES = ('polecenie wprost', 'naturalna parafraza', 'polecenie nie wprost')
 TIMEOUT_S = 300
-VARIANTS = (
-    ('A', 'vosk', 'qwen3.5:2b'),
-    ('B', 'whisper-small', 'qwen3.5:2b'),
-    ('C', 'vosk', 'qwen3.5:4b'),
-    ('D', 'whisper-small', 'qwen3.5:4b'),
-)
-ASR_LABELS = {'vosk': 'Vosk small-pl-0.22', 'whisper-small': 'Whisper small (whisper.cpp)'}
+# Final configuration; ASR_LABEL must equal asr.model_label(ASR) (checked by a test).
+ASR = 'whisper-large-v3-turbo-q5_0'
+ASR_LABEL = 'Whisper large-v3-turbo-q5_0 (whisper.cpp)'
+LLM = 'qwen3.5:2b'
+MODELS = dict(asr=ASR_LABEL, llm=LLM, tts='Supertonic')
 def _stats(values):
     values = [value for value in values
               if type(value) in (int, float) and isfinite(value) and value >= 0]
@@ -71,7 +69,8 @@ def _save_summary(directory, summary):
                            for key in ('known_requests', 'missing_requests')},
     }
     rate = summary['success_rate_percent']
-    lines = [f"Wariant: {summary.get('variant', 'brak danych')}",
+    models = summary.get('models', {})
+    lines = [f"Konfiguracja: {models.get('asr', 'brak danych')} + {models.get('llm', 'brak danych')}",
              f"Zadanie: {summary['task']}",
              f"Zakończone próby: {len(runs)}/{summary.get('planned_runs', summary['repetitions'])}"]
     for run in runs:
@@ -136,12 +135,12 @@ def _save_summary(directory, summary):
         temporary.replace(path)
 
 
-def _run_trial(directory, task, asr, models, audio_file):
-    command = [sys.executable, str(ROOT / 'main.py'), '--asr', asr,
+def _run_trial(directory, task, audio_file):
+    command = [sys.executable, str(ROOT / 'main.py'), '--asr', ASR,
                '--experiment', '--audio-file', str(audio_file), '--report-dir', str(directory)]
     result = dict(success=False, task_success=None, timed_out=False, reason='',
                   returncode=None, report=None, report_complete=None, session_id=None, duration_s=None, command=command)
-    environment = {**os.environ, 'OLLAMA_MODEL': models['llm'], 'ASR_MODEL': asr, 'PYTHONUNBUFFERED': '1'}
+    environment = {**os.environ, 'OLLAMA_MODEL': LLM, 'PYTHONUNBUFFERED': '1'}
     process_error = ''
     try:
         with (directory / 'console.log').open('w', encoding='utf-8') as log:
@@ -162,7 +161,7 @@ def _run_trial(directory, task, asr, models, audio_file):
         report_path = reports[0]
         result['report'] = report_path.name
         data = json.loads(report_path.read_text(encoding='utf-8'))
-        if not isinstance(data, dict) or data.get('models') != models:
+        if not isinstance(data, dict) or data.get('models') != MODELS:
             raise ValueError('Konfiguracja w raporcie nie odpowiada konfiguracji eksperymentu.')
         if data.get('input_source') != {'type': 'audiofile', 'path': str(audio_file)}:
             raise ValueError('Raport nie pochodzi z oczekiwanego pliku audio.')
@@ -190,25 +189,25 @@ def _run_trial(directory, task, asr, models, audio_file):
     return result
 
 
-def _run_scenario(task, variant, asr, models, directory, audio_files, created_at):
+def _run_scenario(task, directory, audio_files, created_at):
     scenario = SCENARIOS[task]
     directory.mkdir()
     expected = dict(tools=scenario['tools'], state=scenario['state'], effect=scenario['effect'])
     if task == 2:
         expected['arguments'] = EXPECTED_ARGUMENTS
-    summary = dict(variant=variant, task=f'Zadanie{task} — {scenario["title"]}',
+    summary = dict(task=f'Zadanie{task} — {scenario["title"]}',
                    repetitions=REPETITIONS, planned_runs=len(audio_files) * REPETITIONS,
-                   created_at=created_at.isoformat(), asr_id=asr, models=models,
+                   created_at=created_at.isoformat(), asr_id=ASR, models=MODELS,
                    audio_files=[str(path) for path in audio_files], timeout_s=TIMEOUT_S,
                    expected=expected, runs=[])
     configuration_text = '\n'.join([
-        f'Wariant: {variant}', f"Zadanie: {summary['task']}",
+        f"Zadanie: {summary['task']}",
         f'Powtórzeń każdego nagrania: {REPETITIONS}', f"Łącznie prób: {summary['planned_runs']}",
-        f'ASR_MODEL: {asr} ({models["asr"]})', f'OLLAMA_MODEL: {models["llm"]}',
-        f'TTS: {models["tts"]}', f'Limit jednej próby: {TIMEOUT_S} s',
+        f'ASR: {ASR} ({ASR_LABEL})', f'LLM: {LLM}', f'TTS: {MODELS["tts"]}',
+        f'Limit jednej próby: {TIMEOUT_S} s',
         'Nowy proces i domyślny stan HMI w każdej próbie; bez restartu Ollamy.',
         'Tryb --experiment: dotyk wyłączony, mikrofon wyłączony, wejście wyłącznie z pliku audio.',
-        'Jedna próba rozgrzewająca na wariant, w osobnym folderze warmup, poza statystykami.',
+        'Jedna próba rozgrzewająca w osobnym folderze warmup, poza statystykami.',
         'NAGRANIA:', *(f'{path} | {RECORDING_TYPES[number - 1]} | {scenario["prompts"][number - 1]}'
                        for number, path in enumerate(audio_files, 1)),
         'OCZEKIWANY EFEKT:', scenario['effect'], json.dumps(expected, ensure_ascii=False), '',
@@ -222,8 +221,8 @@ def _run_scenario(task, variant, asr, models, directory, audio_files, created_at
             number = len(summary['runs']) + 1
             run_dir = recording_dir / f'run_{repetition:02d}'
             run_dir.mkdir()
-            print(f"Wariant {variant}, zadanie {task}, nagranie {recording}/{len(audio_files)}, próba {repetition}/{REPETITIONS}", flush=True)
-            result = _run_trial(run_dir, task, asr, models, audio_file)
+            print(f"Zadanie {task}, nagranie {recording}/{len(audio_files)}, próba {repetition}/{REPETITIONS}", flush=True)
+            result = _run_trial(run_dir, task, audio_file)
             result.update(run=number, recording=recording, repetition=repetition, audio_file=str(audio_file),
                           recording_type=RECORDING_TYPES[recording - 1],
                           prompt_text=scenario['prompts'][recording - 1])
@@ -253,36 +252,29 @@ def main() -> int:
         print(str(error), file=sys.stderr)
         return 2
     created_at = datetime.now().astimezone()
-    series = ROOT / 'logs/eksperymenty' / f'seria_ABCD_{created_at:%Y%m%d_%H%M%S_%f}'
+    series = ROOT / 'logs/eksperymenty' / f'seria_{created_at:%Y%m%d_%H%M%S_%f}'
     series.mkdir(parents=True)
-    manifest = dict(created_at=created_at.isoformat(), variants=VARIANTS,
+    manifest = dict(created_at=created_at.isoformat(), models=MODELS, asr_id=ASR,
                     repetitions=REPETITIONS, recordings_per_task=RECORDINGS,
-                    planned_runs=len(VARIANTS) * len(SCENARIOS) * RECORDINGS * REPETITIONS,
-                    warmup_runs=len(VARIANTS), timeout_s=TIMEOUT_S,
-                    experiment_mode=True,
+                    planned_runs=len(SCENARIOS) * RECORDINGS * REPETITIONS,
+                    warmup_runs=1, timeout_s=TIMEOUT_S, experiment_mode=True,
                     recordings={task: [dict(path=str(path), sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
                                            recording=number, recording_type=RECORDING_TYPES[number - 1],
                                            prompt_text=SCENARIOS[task]['prompts'][number - 1])
                                        for number, path in enumerate(paths, 1)] for task, paths in recordings.items()})
     (series / 'config.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-    results = []
-    for variant, asr, llm in VARIANTS:
-        directory = series / f'{variant}_{asr}_{llm.replace(":", "_")}'
-        directory.mkdir()
-        models = dict(asr=ASR_LABELS[asr], llm=llm, tts='Supertonic')
-        warmup_dir = directory / 'warmup'
-        warmup_dir.mkdir()
-        print(f'Wariant {variant}: rozgrzewanie {asr} + {llm} (poza statystykami).', flush=True)
-        warmup = _run_trial(warmup_dir, 1, asr, models, recordings[1][0])
-        warmup.update(variant=variant, models=models, audio_file=str(recordings[1][0]), excluded_from_statistics=True)
-        (warmup_dir / 'summary.json').write_text(json.dumps(warmup, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-        results.append(warmup['success'])
-        if not warmup['success']:
-            print(f"Rozgrzewanie nieudane: {warmup['reason']}", flush=True)
-        for task, scenario in SCENARIOS.items():
-            results.append(_run_scenario(task, variant, asr, models,
-                                         directory / f'zad{task}_{scenario["title"]}',
-                                         recordings[task], created_at))
+    warmup_dir = series / 'warmup'
+    warmup_dir.mkdir()
+    print(f'Rozgrzewanie {ASR} + {LLM} (poza statystykami).', flush=True)
+    warmup = _run_trial(warmup_dir, 1, recordings[1][0])
+    warmup.update(models=MODELS, audio_file=str(recordings[1][0]), excluded_from_statistics=True)
+    (warmup_dir / 'summary.json').write_text(json.dumps(warmup, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    results = [warmup['success']]
+    if not warmup['success']:
+        print(f"Rozgrzewanie nieudane: {warmup['reason']}", flush=True)
+    for task, scenario in SCENARIOS.items():
+        results.append(_run_scenario(task, series / f'zad{task}_{scenario["title"]}',
+                                     recordings[task], created_at))
     print(f'Wyniki serii: {series}', flush=True)
     return 0 if all(results) else 1
 

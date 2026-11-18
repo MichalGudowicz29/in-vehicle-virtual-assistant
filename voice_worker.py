@@ -18,6 +18,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Signal
 from langgraph.errors import GraphRecursionError
 
+import config
 from asr import resolve_model
 from assistant import Assistant, IncompleteExecutionError
 
@@ -106,6 +107,8 @@ class VoiceWorker(QObject):
         turn_id = None
         try:
             assistant = Assistant(self.car)
+            if config.PRELOAD:
+                self._preload()
             while not self.stop_event.is_set():
                 self.stateChanged.emit('')
                 if self.push_to_talk and not self._wait_for_talk():
@@ -165,6 +168,15 @@ class VoiceWorker(QObject):
         finally:
             self.stateChanged.emit('')
             self.finished.emit()
+
+    def _preload(self):
+        """Load ASR and LLM before the first command (LLM in the background)."""
+        from asr import preload
+        from assistant.agent import warm_up_llm
+
+        threading.Thread(target=warm_up_llm, daemon=True).start()
+        self.stateChanged.emit('processing')   # button disabled while the recogniser loads
+        preload(self.asr)
 
     @staticmethod
     def _speak_response(response: str, on_event=None) -> None:

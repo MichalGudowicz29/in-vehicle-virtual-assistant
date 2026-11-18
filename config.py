@@ -3,21 +3,18 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-# Active model choices live in the project's .env; explicit environment values
-# let the runner preserve the same configuration across its child processes.
+# Optional overrides live in the project's .env; without it the defaults below are used.
 load_dotenv(Path(__file__).with_name(".env"))
 
 # Offline operation must not enable cloud tracing inherited from the environment.
 os.environ["LANGSMITH_TRACING"] = "false"
 os.environ["LANGCHAIN_TRACING_V2"] = "false"
 
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "").strip()
-if not OLLAMA_MODEL:
-    raise ValueError("Ustaw OLLAMA_MODEL w pliku .env; podaj nazwę lokalnego modelu Ollama.")
+DEFAULT_LLM = "qwen3.5:2b"
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "").strip() or DEFAULT_LLM
 
-ASR_MODEL = os.getenv("ASR_MODEL", "").strip()
-if not ASR_MODEL:
-    raise ValueError("Ustaw ASR_MODEL w pliku .env; wybierz backend rozpoznawania mowy.")
+# Tests and tools that must not load models at start-up set ASSISTANT_PRELOAD=0.
+PRELOAD = os.getenv("ASSISTANT_PRELOAD", "1").strip() != "0"
 
 
 def _optional_positive_int(name):
@@ -42,9 +39,11 @@ def _optional_bool(name):
     return value == 'true'
 
 
-# None delegates to the model/server; the effective value remains unknown.
+# None delegates to the Ollama server. Thinking is off by default: it adds latency and,
+# with the server's token limit, cut off answers before any tool call.
+_reasoning = _optional_bool('OLLAMA_REASONING')
 LLM_GENERATION = {
     'num_ctx': _optional_positive_int('OLLAMA_NUM_CTX'),
     'num_predict': _optional_positive_int('OLLAMA_NUM_PREDICT'),
-    'reasoning': _optional_bool('OLLAMA_REASONING'),
+    'reasoning': False if _reasoning is None else _reasoning,
 }

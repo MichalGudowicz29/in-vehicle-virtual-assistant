@@ -15,7 +15,7 @@ os.environ.setdefault("QT_QUICK_BACKEND", "software")
 
 # Test fixtures stay independent of the user's .env and work in CI without it.
 os.environ["OLLAMA_MODEL"] = "test-local-default:2b"
-os.environ["ASR_MODEL"] = "vosk"
+os.environ["ASSISTANT_PRELOAD"] = "0"   # no model loading or Ollama warm-up in tests
 
 
 @pytest.fixture

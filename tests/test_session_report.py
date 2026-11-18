@@ -8,7 +8,7 @@ from session_report import SessionReport
 
 def test_report_measures_turns_requests_tools_and_partial_token_coverage(monkeypatch, tmp_path):
     monkeypatch.setattr('session_report.perf_counter', lambda: 100.0)
-    report = SessionReport()
+    report = SessionReport(asr_model='vosk')
     turn = report.begin_turn()
     for kind, at, data in [
         ('speech_start', 100, {}), ('speech_end', 102.1, {}),

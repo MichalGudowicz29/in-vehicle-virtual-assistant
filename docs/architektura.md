@@ -1,7 +1,7 @@
 # Architektura prototypu
 
-Dokument opisuje stan kodu (wersja `v1.0-thesis`). Jest bazą rozdziałów 3–4 pracy;
-nie zawiera wyników — te są w analizach serii pomiarowych.
+Dokument opisuje stan kodu i jest bazą rozdziałów 3–4 pracy. Nie zawiera wyników
+pomiarów.
 
 ## 1. Warstwy
 
@@ -32,7 +32,7 @@ flowchart LR
 | Ścieżka głosowa | `voice_worker.py`, `asr/`, `tts.py` | Pętla tur w osobnym wątku; GUI nie jest blokowane (WNF-01). |
 | Agent | `assistant/` | Zamiana wypowiedzi na operacje HMI z użyciem lokalnego LLM. |
 | Pomiar | `session_report.py`, `session_callbacks.py`, `shutdown.py` | Zdarzenia z czasami, raport TXT/JSON, stan końcowy. |
-| Eksperyment | `experiments/` | Seria 108 prób w osobnych procesach i kryterium sukcesu. |
+| Eksperyment | `experiments/` | Seria 27 prób głosowych w osobnych procesach i kryterium sukcesu. |
 
 Wszystko działa lokalnie (WNF-02): Vosk/whisper.cpp, Ollama pod `127.0.0.1:11434`
 (bez proxy i bez fallbacku do chmury), Supertonic; tracing LangSmith jest wyłączony.
@@ -93,11 +93,12 @@ sequenceDiagram
 — odpowiednik przycisku głosowego na kierownicy w CarPlay. Jedno naciśnięcie to jedna
 wypowiedź; ponowne naciśnięcie anuluje, a brak mowy przez 8 s zamyka okno nasłuchu.
 Rozpoczęta wypowiedź nie jest ucinana. Przycisk pokazuje stan: „Mów”, „Słucham…”,
-„Przetwarzam…”. Ciągły nasłuch z VAD powodował fałszywe tury na szumie (halucynacje
-Whispera typu „[oklaski]”). Tryb plikowy i runner działają bez przycisku.
+„Przetwarzam…”. Push-to-talk zapobiega fałszywym turom na szumie, na którym Whisper
+halucynuje teksty typu „[oklaski]”. Tryb plikowy i runner działają bez przycisku.
 
-**ASR** (`asr/`): w użyciu ręcznym domyślnie Whisper large-v3-turbo (kwantyzacja Q5_0,
-whisper.cpp z Metal); seria pomiarowa używa własnej macierzy (Vosk / Whisper small).
+**ASR** (`asr/`): Whisper large-v3-turbo w kwantyzacji Q5_0 (whisper.cpp, na Apple
+Silicon przez Metal); Vosk i mniejsze Whispery są dostępne parametrem `--asr`.
+Modele ASR i LLM są ładowane przy starcie aplikacji, a nie przy pierwszym poleceniu.
 Wspólny interfejs `listen` / `listen_file`. Whisper (whisper.cpp)
 dostaje audio mono 16 kHz; koniec wypowiedzi wyznacza WebRTC VAD (ramki 30 ms,
 0,45 s ciszy, min. 90 ms mowy). Vosk używa własnego endpointu. Plik audio jest
@@ -129,14 +130,11 @@ i odciąża mały model od odtwarzania dokładnych nazw. Wartość LLM to zrozum
 dowolnie sformułowanego polecenia, poleceń złożonych, opisu nastroju („coś
 świątecznego” → wybór z biblioteki) i prowadzenie doprecyzowania.
 
-W wersji 1 (seria 16.11, tag `pre-refactor`) model musiał podać dokładną nazwę kontaktu
-i typ numeru, dokładny tytuł z wcześniej pobranej biblioteki oraz osobno ulicę, miasto
-i numer. W użyciu ręcznym prowadziło to do dopisywania nieistniejących danych (np. miasta
-„Warszawa”) i odrzucenia polecenia.
+Gdy model musi sam odtworzyć dokładne dane (nazwę kontaktu, tytuł, ulicę i miasto),
+mały model dopisuje nieistniejące wartości, np. miasto, którego użytkownik nie podał.
 
-Małe lokalne modele (2B/4B) w pilotażu powtarzały akcje (np. trzy połączenia),
-wykonywały niezamówione (pauza po wyborze utworu) i nie kończyły tury. Dlatego
-przyjęto schemat **plan-then-execute z deterministycznym strażnikiem**:
+Małe lokalne modele powtarzają też akcje (np. kilka połączeń), wykonują niezamówione
+(pauza po wyborze utworu) albo nie kończą tury. Dlatego przyjęto schemat **plan-then-execute z deterministycznym strażnikiem**:
 
 1. **Planowanie** — pierwsze żądanie dostaje wyłącznie `PLAN_PROMPT` i zwraca JSON
    z listą akcji wykonawczych. Plan zapisuje aplikacja; jest niezmienny w turze.
@@ -146,9 +144,8 @@ przyjęto schemat **plan-then-execute z deterministycznym strażnikiem**:
 2. **Wykonanie** — `PlanGuard.execute` przepuszcza do kontrolera wyłącznie
    następną akcję planu. Odmawia, gdy: brak planu, akcja poza kolejnością,
    powtórzenie udanego efektu z tymi samymi argumentami, ponowienie nieudanej akcji
-   z identycznymi argumentami (od 2026-11-18; wcześniej model potrafił 11 razy
-   ponawiać ten sam błędny adres aż do limitu kroków), plan i efekt w tej samej
-   odpowiedzi modelu. Ponowienie z poprawionymi argumentami jest dozwolone.
+   z identycznymi argumentami (inaczej model potrafi ponawiać ten sam błędny adres
+   aż do limitu kroków), plan i efekt w tej samej odpowiedzi modelu. Ponowienie z poprawionymi argumentami jest dozwolone.
    Pierwsza odmowa przerywa resztę tury.
 3. **Zakończenie** — po sukcesie wszystkich akcji middleware zwraca pustą
    odpowiedź bez kolejnego żądania do LLM. Gdy użytkownik zapytał też o informację
@@ -176,38 +173,28 @@ czas agenta na turę, `TTS total`, synteza, odtwarzanie, cała tura. Brak etapu 
 pomiaru, nie zero. Granice mowy są estymacją ASR (Vosk: czasy słów, Whisper: VAD).
 Status tury `zakończona` nie oznacza sukcesu zadania — ocenia go runner.
 
-## 6. Seria pomiarowa
+## 6. Seria pomiarowa (głos)
 
 `experiments/runner.py` (tylko biblioteka standardowa, nie importuje aplikacji)
-uruchamia `main.py --experiment --audio-file …` jako nowy proces na każdą próbę:
-
-| Wariant | ASR | LLM |
-| --- | --- | --- |
-| A | Vosk small-pl-0.22 | qwen3.5:2b |
-| B | Whisper small | qwen3.5:2b |
-| C | Vosk small-pl-0.22 | qwen3.5:4b |
-| D | Whisper small | qwen3.5:4b |
-
-3 zadania × 3 nagrania (wprost / parafraza / nie wprost) × 3 powtórzenia × 4 warianty
-= 108 prób + 4 rozgrzewające poza statystyką; limit 300 s na próbę. W trybie
-`--experiment` dotyk i mikrofon są wyłączone, a muzyka startuje od wstrzymanego
-„Chill song”, żeby wybór Christmas Eve był rzeczywistym wyborem.
+uruchamia `main.py --experiment --audio-file …` jako nowy proces na każdą próbę,
+w końcowej konfiguracji: Whisper large-v3-turbo-q5_0 + qwen3.5:2b + Supertonic.
+3 zadania × 3 nagrania (wprost / parafraza / nie wprost) × 3 powtórzenia = 27 prób
++ 1 rozgrzewająca poza statystyką; limit 300 s na próbę. W trybie `--experiment`
+dotyk i mikrofon są wyłączone, a muzyka startuje od wstrzymanego „Chill song”, żeby
+wybór Christmas Eve był rzeczywistym wyborem.
 
 Kryterium (`experiments/evaluate.py`): jedna zakończona tura bez błędu sesji, dokładnie
 jedno udane wywołanie narzędzia zadania (wcześniejsze nieudane próby są dopuszczalne,
-każde wywołanie musi mieć zakończenie), właściwy rozstrzygnięty cel i stan końcowy:
+każde wywołanie musi mieć zakończenie), właściwy wykonany cel i stan końcowy:
 
 - Muzyka — wykonano `select_track` z utworem Christmas Eve, bez innych operacji muzycznych; gra Christmas Eve.
 - Telefon — połączono z Robertem Lewandowskim na numer mobilny; połączenie aktywne.
 - Nawigacja — jedno udane `navigate_to`; cel „ul. Żołnierska 47, Szczecin”, bez przystanków.
 
-Cel jest odczytywany z wyniku narzędzia (co aplikacja faktycznie wykonała), a dla starych
-raportów z argumentów. Na raportach serii 16.11 i 13.11 kryterium daje identyczne oceny
-jak w chwili pomiaru (72/108 i 60/108); seria 10.11 była oceniana wcześniejszym,
-łagodniejszym kryterium muzyki.
+Cel jest odczytywany z wyniku narzędzia, czyli z tego, co aplikacja faktycznie wykonała.
 
-Wyniki: `logs/eksperymenty/seria_ABCD_<czas>/<wariant>/zad<N>_<zadanie>/` z `summary.txt`
-/ `summary.json` (sukcesy, czasy, tokeny, best/worst) i surowymi raportami każdej próby.
+Wyniki: `logs/eksperymenty/seria_<czas>/zad<N>_<zadanie>/` z `summary.txt` / `summary.json`
+(sukcesy, czasy etapów, tokeny, best/worst) i surowymi raportami każdej próby.
 Trzy powtórzenia tego samego pliku nie są trzema nowymi wypowiedziami.
 
 ## 7. Testy

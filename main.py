@@ -22,8 +22,7 @@ from PySide6.QtCore import QThread, QTimer, Qt
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtWidgets import QApplication
 
-import config
-from asr import ASR_MODELS, MANUAL_ASR, resolve_model
+from asr import ASR_MODELS, DEFAULT_ASR
 from CarSystem.car_system import CarSystem
 from session_controls import SessionControls
 from session_report import SessionReport
@@ -36,21 +35,14 @@ def parse_args():
     parser.add_argument("--audio-file", type=Path, help="Plik audio podawany do ASR w naturalnym tempie.")
     parser.add_argument("--experiment", action="store_true",
                         help="Tryb runnera: wyłącznie plik audio, bez obsługi dotykowej.")
-    parser.add_argument("--asr", choices=ASR_MODELS,
-                        help=f"Model ASR (domyślnie {MANUAL_ASR}; w --experiment: ASR_MODEL z .env).")
+    parser.add_argument("--asr", choices=ASR_MODELS, default=DEFAULT_ASR,
+                        help=f"Model ASR (domyślnie {DEFAULT_ASR}).")
     parser.add_argument("--report-dir", type=Path, default=Path("logs/sessions"),
                         help="Folder raportów TXT i JSON (domyślnie: logs/sessions).")
     args, qt_args = parser.parse_known_args()
 
     if args.experiment and args.audio_file is None:
         parser.error("Tryb --experiment wymaga --audio-file; mikrofon jest wyłączony.")
-    if not args.experiment and config.LLM_GENERATION['reasoning'] is None:
-        config.LLM_GENERATION['reasoning'] = False   # manual use: no thinking unless set in .env
-    try:
-        # The runner controls ASR through the environment; manual use has its own default.
-        args.asr = resolve_model(args.asr if args.asr is not None or args.experiment else MANUAL_ASR)
-    except ValueError as error:
-        parser.error(str(error))
     if args.audio_file is not None:
         args.audio_file = args.audio_file.expanduser().resolve()
         if not args.audio_file.is_file():

@@ -32,6 +32,16 @@ OLLAMA_URL = "http://127.0.0.1:11434"
 ACTION_NAMES = set(get_args(ActionName))
 
 
+def warm_up_llm() -> None:
+    """Ask Ollama to load the model now (empty prompt), instead of on the first command."""
+    import httpx
+    try:
+        httpx.post(f"{OLLAMA_URL}/api/generate", json={"model": config.OLLAMA_MODEL, "prompt": ""},
+                   timeout=120, trust_env=False)
+    except httpx.HTTPError:
+        pass   # an unavailable server is reported on the first command
+
+
 class Assistant:
     def __init__(self, car, thread_id: str = "user_session_1"):
         self.car = car

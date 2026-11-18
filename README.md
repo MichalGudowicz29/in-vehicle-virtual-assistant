@@ -2,8 +2,8 @@
 
 Prototyp ekranu samochodowego (muzyka, telefon, nawigacja) obsługiwanego dotykiem
 i głosem. Polecenie głosowe przechodzi lokalnie przez ASR → LLM z narzędziami → TTS;
-nic nie jest wysyłane do chmury. Osobny runner wykonuje serię pomiarową 108 prób
-i ocenia, czy zadanie zostało wykonane.
+nic nie jest wysyłane do chmury. Osobny runner wykonuje serię pomiarową głosu
+(27 prób z nagrań) i ocenia, czy zadanie zostało wykonane.
 
 To symulacja: połączenie telefoniczne jest udawane, mapa jest schematem z lokalnej
 bazy adresów (bez rzeczywistych tras), muzyka gra z plików w `music/`.
@@ -15,7 +15,6 @@ Wymagania: [uv](https://docs.astral.sh/uv/), [Ollama](https://ollama.com/downloa
 
 ```bash
 uv sync --locked
-cp .env.example .env                                  # OLLAMA_MODEL, ASR_MODEL
 uv run python -m experiments.prepare_models           # LLM, Whisper, Vosk, TTS (wymaga internetu)
 uv run python main.py                                 # przycisk „Mów” + dotyk
 ```
@@ -28,7 +27,7 @@ Pliki `music/1.mp3`–`3.mp3` i nagrania `assets/voice/` nie są w gicie (MP3) �
 | Jedna tura z pliku, potem wyjście | `uv run python main.py --audio-file assets/voice/Telefon/1.mp3` |
 | Inny ASR | `--asr vosk` / `whisper-small` / `whisper-medium` / `whisper-large` / `whisper-large-v3-turbo-q5_0` |
 | Folder raportów | `--report-dir logs/...` (domyślnie `logs/sessions/`) |
-| Seria pomiarowa A–D | `uv run python -m experiments.runner` |
+| Seria pomiarowa głosu | `uv run python -m experiments.runner` |
 | Testy (bez mikrofonu i LLM) | `uv run pytest` |
 
 Mikrofon: najlepiej wbudowany lub przewodowy. Mikrofon słuchawek Bluetooth działa w trybie
@@ -37,9 +36,9 @@ rozmowy (wąskie pasmo) i wyraźnie psuje rozpoznawanie.
 Na serwerze bez ekranu (SSH): `QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software`
 przed poleceniem; wyjście audio nadal musi działać.
 
-Konfiguracja `.env` (wzór: [.env.example](.env.example)): `OLLAMA_MODEL` (lokalny model
-z tool calling), `ASR_MODEL`, opcjonalnie `OLLAMA_NUM_CTX`, `OLLAMA_NUM_PREDICT`,
-`OLLAMA_REASONING` (puste = domyślne serwera; ręcznie reasoning domyślnie `false`).
+Konfiguracja: qwen3.5:2b (Ollama) + Whisper large-v3-turbo-q5_0 + Supertonic, reasoning
+wyłączony. `.env` jest opcjonalny (wzór: [.env.example](.env.example)): `OLLAMA_MODEL`,
+`OLLAMA_NUM_CTX`, `OLLAMA_NUM_PREDICT`, `OLLAMA_REASONING`.
 
 ## Struktura
 
@@ -55,7 +54,7 @@ session_report.py    zdarzenia i czasy tury → raport TXT/JSON
 session_callbacks.py pomiar żądań LLM i narzędzi (callbacki LangChain)
 session_controls.py  akcje dotykowe z QML + baner komunikatu
 shutdown.py          zamknięcie: stan końcowy HMI + zapis raportu
-experiments/         runner serii A–D, kryterium oceny, przygotowanie modeli
+experiments/         runner serii pomiarowej, kryterium oceny, przygotowanie modeli
 docs/                architektura (baza rozdz. 3–4), procedura odbioru
 ```
 

@@ -103,7 +103,7 @@ def test_chatollama_executes_tools_and_reports_server_token_counts(monkeypatch, 
         assert track['title'] in txt.read_text()
 
 
-def test_empty_model_name_is_rejected_and_cloud_tracing_is_disabled(monkeypatch):
+def test_empty_model_name_uses_default_and_cloud_tracing_is_disabled(monkeypatch):
     import os
     import pytest
     import config
@@ -112,8 +112,8 @@ def test_empty_model_name_is_rejected_and_cloud_tracing_is_disabled(monkeypatch)
             environment.setenv('OLLAMA_MODEL', '   ')
             environment.setenv('LANGSMITH_TRACING', 'true')
             environment.setenv('LANGCHAIN_TRACING_V2', 'true')
-            with pytest.raises(ValueError, match='OLLAMA_MODEL'):
-                importlib.reload(config)
+            importlib.reload(config)
+            assert config.OLLAMA_MODEL == config.DEFAULT_LLM
             assert os.environ['LANGSMITH_TRACING'] == 'false'
             assert os.environ['LANGCHAIN_TRACING_V2'] == 'false'
     finally:
